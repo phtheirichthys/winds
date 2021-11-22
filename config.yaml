@@ -1,0 +1,6 @@
+providers:
+- noaa:
+    enable: true
+- meteofrance:
+    enable: false
+    token: ""
