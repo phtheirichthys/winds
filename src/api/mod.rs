@@ -4,7 +4,9 @@ use rocket::{Rocket, Build};
 mod v1;
 
 pub(crate) fn build() -> Rocket<Build> {
-  rocket::build().mount("/healthz/-", routes![ready])
+  rocket::build()
+      .mount("/healthz/-", routes![ready])
+      .mount("/winds/api/v1/", v1::routes())
 }
 
 #[get("/ready")]

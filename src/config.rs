@@ -1,3 +1,4 @@
+use chrono::{DateTime, Utc};
 use serde::{Serialize, Deserialize};
 
 #[derive(Default, Debug, Serialize, Deserialize)]
@@ -15,11 +16,14 @@ pub(crate) enum ProviderConfig {
 
 #[derive(Default, Debug, Serialize, Deserialize)]
 pub(crate) struct NoaaProviderConfig {
-  enable: bool,
+  pub(crate) enabled: bool,
+  pub(crate) init: Option<DateTime<Utc>>,
+  pub(crate) gribs_dir: String,
+  pub(crate) jsons_dir: String,
 }
 
 #[derive(Default, Debug, Serialize, Deserialize)]
 pub(crate) struct MeteofranceProviderConfig {
-  enable: bool,
+  pub(crate) enabled: bool,
   token: String,
 }

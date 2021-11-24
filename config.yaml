@@ -1,6 +1,9 @@
 providers:
 - noaa:
-    enable: true
+    enabled: true
+    #init: 2021-11-23T18:00:00Z
+    gribs_dir: data/noaa/gribs
+    jsons_dir: data/noaa/jsons
 - meteofrance:
-    enable: false
+    enabled: false
     token: ""
