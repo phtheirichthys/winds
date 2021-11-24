@@ -143,7 +143,9 @@ impl Noaa {
 
                         match self.on_file_downloaded(path.to_path_buf(), stamp).await {
                             Ok(()) => {
-                                std::fs::rename(path, self.gribs_dir().join(stamp.file_name()))?;
+                                //std::fs::rename(path, self.gribs_dir().join(stamp.file_name()))?;
+                                std::fs::copy(&path, self.gribs_dir().join(stamp.file_name()))?;
+                                std::fs::remove_file(path);
 
                                 info!("`{}` Downloaded", stamp);
 
