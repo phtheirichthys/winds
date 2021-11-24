@@ -24,7 +24,7 @@ struct Cli {
 #[rocket::main]
 async fn main() -> () {
     std::env::var("RUST_LOG").map_err(|_| {
-        std::env::set_var("RUST_LOG", "error,winds=info");
+        std::env::set_var("RUST_LOG", "error,winds=debug");
     }).unwrap_or_default();
     env_logger::init();
 

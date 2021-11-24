@@ -132,7 +132,7 @@ pub(crate) trait Provider {
   async fn download_at(&self, ref_time: RefTime);
 
   async fn on_file_downloaded(&self, path: PathBuf, stamp: &Stamp) -> Result<()> {
-    debug!("{} - Convert grib `{:?}` to json", self.id(), stamp);
+    debug!("{} - Convert grib `{}` to json", self.id(), stamp);
 
     let output = Command::new("grib2json/bin/grib2json")
         .arg("--data")

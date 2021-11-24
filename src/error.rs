@@ -10,6 +10,9 @@ pub(crate) enum Error {
     #[error("StampError: {0}")]
     StampError(#[from] StampError),
 
+    #[error("StampNotFoundError")]
+    StampNotFoundError(),
+
     #[error("RoundingError: {0}")]
     RoundingError(#[from] chrono::RoundingError),
 

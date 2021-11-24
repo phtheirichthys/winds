@@ -16,7 +16,10 @@ RUN if [ $TARGETPLATFORM = "linux/arm64" ]; then \
 
 FROM debian
 
-COPY /grib2json /
+RUN apt-get update && apt-get upgrade --yes && apt-get install --yes --no-install-recommends openjdk-11-jre
+
 COPY --from=builder /winds /
+
+ENV JAVA_HOME "/usr/lib/jvm/java-11-openjdk-armhf"
 
 CMD ["/winds"]

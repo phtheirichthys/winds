@@ -64,13 +64,17 @@ impl Noaa {
         ref_time + Duration::hours(3) + Duration::minutes(30)
     }
 
+    async fn download_first(&self, ref_time: RefTime) -> Result<bool> {
+        self.download_next(true, ref_time).await
+    }
+
     #[async_recursion]
-    async fn download_next(&self, ref_time: RefTime) -> Result<bool> {
+    async fn download_next(&self, first: bool, ref_time: RefTime) -> Result<bool> {
 
         let mut something_new = false;
 
         let mut h = 6;
-        let mut first = true;
+        let mut first = first;
 
         while h <= self.max_forecast_hour() {
             let forecast_time = ForecastTime::from_ref_time(&ref_time, h);
@@ -89,10 +93,14 @@ impl Noaa {
                         something_new = true;
                         self.on_stamp_downloaded(stamp).await;
                     },
-                    Err(_) => {
+                    Err(Error::StampNotFoundError()) => {
                         if first {
-                            return self.download_next((ref_time - 6.hours()).into()).await;
+                            return self.download_next(false, (ref_time - 6.hours()).into()).await;
                         }
+                        break;
+                    }
+                    Err(e) => {
+                        error!("Error downloading grib `{}` : {:?}", stamp, e);
                         break;
                     }
                 }
@@ -122,7 +130,7 @@ impl Noaa {
             ("bottomlat", "-90"),
         ]).build()?;
 
-        debug!("{} Try to download {}", stamp, req.url());
+        debug!("`{}` Try to download {}", stamp, req.url());
 
         match client.execute(req).await {
             Ok(response) => {
@@ -149,7 +157,7 @@ impl Noaa {
                     },
                     StatusCode::NOT_FOUND => {
                         debug!("Download failed `{}` : {}", stamp, StatusCode::NOT_FOUND);
-                        Err(Error::Error())
+                        Err(Error::StampNotFoundError())
                     },
                     any => {
                         warn!("Download failed `{}` : {}", stamp, any);
@@ -208,7 +216,7 @@ impl Provider for Noaa {
     async fn download_at(&self, ref_time: RefTime) {
         debug!("Is there something to download ?");
 
-        match self.download_next(ref_time).await {
+        match self.download_first(ref_time).await {
             Ok(something_new) => {
                 debug!("Nothing more to download for now");
                 if something_new {
