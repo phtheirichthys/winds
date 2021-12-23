@@ -7,9 +7,15 @@ pub(crate) struct Forecasts {
     provider: String,
     provider_name: String,
     current_ref_time: DateTime<Utc>,
-    last_forecast_time: Option<DateTime<Utc>>,
+    last: Option<LastForecast>,
     progress: u8,
     forecasts: Vec<Forecast>,
+}
+
+#[derive(Deserialize, Serialize, Debug)]
+struct LastForecast {
+    forecast_time: DateTime<Utc>,
+    ref_time: DateTime<Utc>,
 }
 
 #[derive(Deserialize, Serialize, Debug)]
@@ -24,7 +30,7 @@ impl From<&Status> for Forecasts {
             provider: forecasts.provider.clone(),
             provider_name: forecasts.provider_name.clone(),
             current_ref_time: forecasts.current_ref_time,
-            last_forecast_time: forecasts.last.as_ref().map(|last| last.forecast_time),
+            last: forecasts.last.as_ref().map(|last| LastForecast { forecast_time: last.forecast_time, ref_time: last.ref_time }),
             progress: forecasts.progress,
             forecasts: {
                 let mut forecasts = forecasts.forecasts.iter()
