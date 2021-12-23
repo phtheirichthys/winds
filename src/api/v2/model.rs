@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use chrono::{DateTime, Utc};
 use serde::{Serialize, Deserialize};
 use crate::providers::Status;
@@ -8,15 +7,15 @@ pub(crate) struct Forecasts {
     provider: String,
     provider_name: String,
     current_ref_time: DateTime<Utc>,
-    last_forecast: Option<Forecast>,
+    last_forecast_time: Option<DateTime<Utc>>,
     progress: u8,
-    forecasts: HashMap<DateTime<Utc>, Vec<Forecast>>,
+    forecasts: Vec<Forecast>,
 }
 
 #[derive(Deserialize, Serialize, Debug)]
 struct Forecast {
-    ref_time: DateTime<Utc>,
     forecast_time: DateTime<Utc>,
+    ref_times: Vec<DateTime<Utc>>,
 }
 
 impl From<&Status> for Forecasts {
@@ -25,13 +24,18 @@ impl From<&Status> for Forecasts {
             provider: forecasts.provider.clone(),
             provider_name: forecasts.provider_name.clone(),
             current_ref_time: forecasts.current_ref_time,
-            last_forecast: forecasts.last.as_ref().map(|last| Forecast { ref_time: last.ref_time, forecast_time: last.forecast_time }),
+            last_forecast_time: forecasts.last.as_ref().map(|last| last.forecast_time),
             progress: forecasts.progress,
-            forecasts: forecasts.forecasts.iter()
-                .map(|(forecast_time, forecasts)| (
-                    forecast_time.clone(),
-                    forecasts.iter().map(|forecast| Forecast { ref_time: forecast.ref_time, forecast_time: forecast.forecast_time }).collect::<Vec<Forecast>>())
-                ).collect(),
+            forecasts: {
+                let mut forecasts = forecasts.forecasts.iter()
+                    .map(|(forecast_time, forecasts)| Forecast {
+                        forecast_time: forecast_time.clone(),
+                        ref_times: forecasts.iter().map(|forecast| forecast.ref_time).collect(),
+                    }).collect::<Vec<Forecast>>();
+
+                forecasts.sort_by(|a, b| a.forecast_time.cmp(&b.forecast_time));
+                forecasts
+            },
         }
     }
 }

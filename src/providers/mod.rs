@@ -4,12 +4,14 @@ use std::cmp::Ordering;
 use chrono::{DateTime, Duration, Utc};
 use std::collections::HashMap;
 use std::fs;
-use std::path::PathBuf;
+use std::future::Future;
+use std::path::{PathBuf};
 use std::sync::Arc;
 use async_process::Command;
+use tempfile::NamedTempFile;
 use tokio::{self, time};
 use tokio::sync::{RwLock};
-use crate::config::{MeteofranceProviderConfig, NoaaProviderConfig, ProviderConfig};
+use crate::config::{MeteofranceProviderConfig, NoaaProviderConfig, ProviderConfig, Storage};
 
 use crate::error::{Error, Result};
 use crate::providers::noaa::Noaa;
@@ -47,11 +49,11 @@ pub(crate) trait Provider {
 
   fn gribs_dir(&self) -> PathBuf;
 
-  fn jsons_dir(&self) -> PathBuf;
+  fn jsons_storages(&self) -> Vec<Storage>;
 
-  fn max_forecast_hour(&self) -> i64;
+  fn max_forecast_hour(&self) -> u16;
 
-  fn step(&self) -> i64;
+  fn step(&self) -> u16;
 
   fn status(&self) -> Winds;
 
@@ -94,6 +96,9 @@ pub(crate) trait Provider {
         if next_stamp.from_now() < chrono::Duration::zero() {
           info!("{} - Delete `{}` {}", self.id(), stamp, stamp.file_name());
           fs::remove_file(self.gribs_dir().join(stamp.file_name()))?;
+          for storage in self.jsons_storages() {
+            storage.remove(stamp.file_name()).await?;
+          }
           continue;
         }
       }
@@ -131,8 +136,11 @@ pub(crate) trait Provider {
 
   async fn download_at(&self, ref_time: RefTime);
 
-  async fn on_file_downloaded(&self, path: PathBuf, stamp: &Stamp) -> Result<()> {
+  async fn on_file_downloaded(&self, grib_path: PathBuf, stamp: &Stamp) -> Result<()> {
     debug!("{} - Convert grib `{}` to json", self.id(), stamp);
+
+    let file = NamedTempFile::new()?;
+    let (_, json_path) = file.into_parts();
 
     let output = Command::new("grib2json/bin/grib2json")
         .arg("--data")
@@ -143,13 +151,20 @@ pub(crate) trait Provider {
         .arg("10")
         .arg("--compact")
         .arg("--output")
-        .arg(self.jsons_dir().join(stamp.file_name()))
-        .arg(path)
+        .arg(&json_path)
+        .arg(grib_path)
         .output().await?;
 
     debug!("{} - {}", self.id(), String::from_utf8_lossy(output.stdout.as_slice()));
     match output.status.exit_ok() {
       Ok(()) => {
+
+        for to in self.jsons_storages() {
+          to.save(&json_path, stamp.file_name()).await?;
+        }
+
+        std::fs::remove_file(&json_path).unwrap_or_default();
+
         Ok(())
       }
       Err(e) => {
@@ -173,6 +188,12 @@ pub(crate) trait Provider {
           Ok(()) => {},
           Err(e) => error!("{} - Error removing file {} : {}", self.id(), stamp.file_name(), e),
         }
+        for storage in self.jsons_storages() {
+          match storage.remove(stamp.file_name()).await {
+            Ok(()) => {},
+            Err(e) => error!("{} - Error removing file {} from storage {} : {}", self.id(), stamp.file_name(), storage, e),
+          }
+        }
       }
     }
   }
@@ -191,9 +212,9 @@ pub(crate) trait WindsSpec {
 
   async fn add_forecast(&self, forecast: Stamp);
 
-  async fn remove_forecast<F>(&self, forecast_time: &ForecastTime, remove: F) where F: Send + Fn(Stamp);
+  async fn remove_forecast<F, T>(&self, forecast_time: &ForecastTime, remove: F) where F: Sync + Send + Fn(Stamp) -> T, T: Future<Output = ()> + Send;
 
-  async fn set_last(&self, ref_time: DateTime<Utc>, forecast_time: i64, max_forecast_time: i64);
+  async fn set_last(&self, ref_time: DateTime<Utc>, forecast_time: u16, max_forecast_time: u16);
 
   async fn contains_key(&self, forecast_time: &ForecastTime) -> bool;
 }
@@ -226,18 +247,18 @@ impl WindsSpec for Winds {
     files.push(forecast);
   }
 
-  async fn remove_forecast<F>(&self, forecast_time: &ForecastTime, remove: F) where F: Send + Fn(Stamp) {
+  async fn remove_forecast<F, T>(&self, forecast_time: &ForecastTime, remove: F) where F: Sync + Send + Fn(Stamp) -> T, T: Future<Output = ()> + Send {
 
     let mut it = self.write().await;
 
     if let Some(stamps) = it.forecasts.remove(forecast_time) {
       for stamp in stamps {
-        remove(stamp);
+        remove(stamp).await;
       }
     }
   }
 
-  async fn set_last(&self, ref_time: DateTime<Utc>, forecast_time: i64, max_forecast_time: i64) {
+  async fn set_last(&self, ref_time: DateTime<Utc>, forecast_time: u16, max_forecast_time: u16) {
     let mut it = self.write().await;
 
     if it.last.is_none() || it.last.as_ref().unwrap().ref_time <= ref_time {

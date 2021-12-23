@@ -2,12 +2,13 @@ use async_recursion::async_recursion;
 use std::path::PathBuf;
 use std::fs;
 use std::io::Write;
+use std::ops::Neg;
 use std::sync::Arc;
 use chrono::{DateTime, Duration, Utc};
 use http::StatusCode;
 use tempfile::NamedTempFile;
 use tokio::sync::{RwLock};
-use crate::config::NoaaProviderConfig;
+use crate::config::{NoaaProviderConfig, Storage};
 use crate::providers::{Provider, Status, WindsSpec, Winds};
 use crate::error::{Error, Result};
 use crate::stamp::{Durations, ForecastTime, ForecastTimeSpec, RefTime, RefTimeSpec, Stamp};
@@ -15,7 +16,7 @@ use crate::stamp::{Durations, ForecastTime, ForecastTimeSpec, RefTime, RefTimeSp
 pub(crate) struct Noaa {
     pub(crate) status: Winds,
     gribs_dir: PathBuf,
-    jsons_dir: PathBuf,
+    jsons: Vec<Storage>,
 }
 
 impl Noaa {
@@ -33,8 +34,14 @@ impl Noaa {
     pub(crate) fn new(config: &NoaaProviderConfig) -> Result<Self> {
         let gribs_dir: PathBuf = config.gribs_dir.clone().into();
         Self::create_dir(&gribs_dir);
-        let jsons_dir: PathBuf = config.jsons_dir.clone().into();
-        Self::create_dir(&jsons_dir);
+
+        for dir in &config.jsons {
+            match dir {
+                Storage::Local{dir} => Self::create_dir(&dir.into()),
+                _ => {}
+            }
+        }
+
         Ok(Self {
             status: Arc::new(RwLock::new(Status {
                 provider: "noaa".to_string(),
@@ -45,7 +52,7 @@ impl Noaa {
                 forecasts: Default::default()
             })),
             gribs_dir,
-            jsons_dir,
+            jsons: config.jsons.clone(),
         })
     }
 
@@ -79,7 +86,7 @@ impl Noaa {
         while h <= self.max_forecast_hour() {
             let forecast_time = ForecastTime::from_ref_time(&ref_time, h);
 
-            if forecast_time.from_now() <= (-1 * self.step()).hours() {
+            if forecast_time.from_now() <= self.step().hours().neg() {
                 h += self.step();
                 continue;
             }
@@ -145,7 +152,7 @@ impl Noaa {
                             Ok(()) => {
                                 //std::fs::rename(path, self.gribs_dir().join(stamp.file_name()))?;
                                 std::fs::copy(&path, self.gribs_dir().join(stamp.file_name()))?;
-                                std::fs::remove_file(path);
+                                std::fs::remove_file(path).unwrap_or_default();
 
                                 info!("`{}` Downloaded", stamp);
 
@@ -186,15 +193,15 @@ impl Provider for Noaa {
         self.gribs_dir.clone()
     }
 
-    fn jsons_dir(&self) -> PathBuf {
-        self.jsons_dir.clone()
+    fn jsons_storages(&self) -> Vec<Storage> {
+        self.jsons.clone()
     }
 
-    fn max_forecast_hour(&self) -> i64 {
+    fn max_forecast_hour(&self) -> u16 {
         384
     }
 
-    fn step(&self) -> i64 {
+    fn step(&self) -> u16 {
         3
     }
 
@@ -236,11 +243,17 @@ impl Provider for Noaa {
     async fn on_stamp_downloaded(&self, stamp: Stamp) {
 
         if self.status.contains_key(&stamp.forecast_time).await && stamp.forecast_hour() > 6 { // keep previous forecast to merge
-            self.status.remove_forecast(&stamp.forecast_time, |stamp| {
+            self.status.remove_forecast(&stamp.forecast_time, async move |stamp| {
                 info!("Delete `{}`", stamp);
                 match fs::remove_file(self.gribs_dir().join(stamp.file_name())) {
                     Ok(()) => {},
                     Err(e) => error!("Error removing file {} : {}", stamp.file_name(), e),
+                }
+                for storage in self.jsons_storages() {
+                    match storage.remove(stamp.file_name()).await {
+                        Ok(()) => {},
+                        Err(e) => error!("{} - Error removing file {} from storage {} : {}", self.id(), stamp.file_name(), storage, e),
+                    }
                 }
             }).await;
         }

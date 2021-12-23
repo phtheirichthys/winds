@@ -5,7 +5,7 @@ use std::ops::Deref;
 use rocket::{Route, State};
 use rocket::http::Status;
 use rocket::serde::json::Json;
-use crate::api::v1::model::Forecasts;
+use crate::api::v2::model::Forecasts;
 use crate::providers::Winds;
 
 pub(crate) fn routes() -> Vec<Route> {

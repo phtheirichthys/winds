@@ -25,16 +25,16 @@ impl ForecastTimeSpec for ForecastTime {
 }
 
 pub(crate) trait ForecastTimeSpec {
-    fn from_ref_time(ref_time: &RefTime, h: i64) -> ForecastTime {
+    fn from_ref_time(ref_time: &RefTime, h: u16) -> ForecastTime {
         *ref_time + h.hours()
     }
 
     fn from_now(&self) -> Duration;
 }
 
-impl Durations for i64 {
+impl Durations for u16 {
     fn hours(&self) -> Duration {
-        chrono::Duration::hours(*self)
+        chrono::Duration::hours(*self as i64)
     }
 }
 
@@ -54,8 +54,8 @@ impl Stamp {
         self.forecast_time - Utc::now()
     }
 
-    pub(crate) fn forecast_hour(&self) -> i64 {
-        (self.forecast_time - self.ref_time).num_hours()
+    pub(crate) fn forecast_hour(&self) -> u16 {
+        (self.forecast_time - self.ref_time).num_hours() as u16
     }
 
     pub(crate) fn file_name(&self) -> String {
@@ -79,7 +79,7 @@ impl TryFrom<&PathBuf> for Stamp {
         match filename.split('.').collect::<Vec<&str>>()[..] {
             [date, hour] => {
                 let ref_time = Utc.datetime_from_str((String::from(date) + "00").as_str(), "%Y%m%d%H%M")?;
-                let forecast_hour = hour[1..4].parse::<i64>()?;
+                let forecast_hour = hour[1..4].parse::<u16>()?;
 
                 let res = Self {
                     ref_time,
@@ -104,8 +104,8 @@ impl From<(&RefTime, ForecastTime)> for Stamp {
     }
 }
 
-impl From<(&RefTime, i64)> for Stamp {
-    fn from((ref_time, h): (&RefTime, i64)) -> Self {
+impl From<(&RefTime, u16)> for Stamp {
+    fn from((ref_time, h): (&RefTime, u16)) -> Self {
         Self {
             ref_time: ref_time.clone(),
             forecast_time: *ref_time + Duration::hours(h as i64)

@@ -27,4 +27,8 @@ pub(crate) enum Error {
 
     #[error("ExitStatusError: {0}")]
     ExitStatusError(#[from] std::process::ExitStatusError),
+
+    #[error("AnyhowError: {0}")]
+    AnyhowError(#[from] anyhow::Error),
+
 }
