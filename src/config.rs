@@ -82,6 +82,7 @@ impl Storage {
 
         storage.set_path_style();
         storage.add_header("content-encoding", "gzip");
+        storage.add_header("cache-control", "public, max-age=604800, immutable");
 
         let file = File::open(from)?;
 
