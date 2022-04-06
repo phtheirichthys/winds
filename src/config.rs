@@ -17,7 +17,7 @@ pub struct Config {
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) enum ProviderConfig {
+pub enum ProviderConfig {
   Noaa(NoaaProviderConfig),
   Meteofrance(MeteofranceProviderConfig)
 }
@@ -32,7 +32,7 @@ pub struct NoaaProviderConfig {
 }
 
 #[derive(Default, Debug, Serialize, Deserialize)]
-pub(crate) struct MeteofranceProviderConfig {
+pub struct MeteofranceProviderConfig {
   pub(crate) enabled: bool,
   token: String,
 }

@@ -538,7 +538,7 @@ pub(crate) trait Provider {
 
 }
 
-pub(crate) type Winds = Arc<RwLock<Status>>;
+pub type Winds = Arc<RwLock<Status>>;
 
 #[async_trait]
 pub(crate) trait WindsSpec {
@@ -613,7 +613,7 @@ impl WindsSpec for Winds {
   }
 }
 
-pub(crate) struct Status {
+pub struct Status {
   pub provider: String,
   pub(crate) provider_name: String,
   pub(crate) current_ref_time: RefTime,

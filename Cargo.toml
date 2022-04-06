@@ -13,9 +13,7 @@ cached = "0.26.2"
 confy = { git = "https://github.com/rust-cli/confy", version = "0.4.0", default-features = false, features = ["yaml_conf"] }
 chrono = { version = "0.4.19", features = ["serde"] }
 flate2 = "1.0"
-grib = { path = "../grib-rs" }
 num = "0.4.0"
-#grib = "0.4.1"
 http = "0.2.5"
 log = "0.4.14"
 env_logger = "0.9.0"
