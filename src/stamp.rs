@@ -1,6 +1,7 @@
 use std::fmt::{Display, Formatter};
 use std::path::PathBuf;
 use chrono::{DateTime, Duration, DurationRound, TimeZone, Utc};
+use crate::providers::Wind;
 
 pub(crate) type RefTime = DateTime<Utc>;
 
@@ -16,7 +17,7 @@ pub(crate) trait RefTimeSpec {
     }
 }
 
-pub(crate) type ForecastTime = DateTime<Utc>;
+pub type ForecastTime = DateTime<Utc>;
 
 impl ForecastTimeSpec for ForecastTime {
     fn from_now(&self) -> Duration {
@@ -43,10 +44,10 @@ pub(crate) trait Durations {
 }
 
 
-#[derive(Debug)]
-pub(crate) struct Stamp {
-    pub(crate) ref_time: RefTime,
-    pub(crate) forecast_time: ForecastTime,
+pub struct Stamp {
+    pub ref_time: RefTime,
+    pub forecast_time: ForecastTime,
+    pub(crate) wind: Option<Wind>,
 }
 
 impl Stamp {
@@ -83,7 +84,8 @@ impl TryFrom<&PathBuf> for Stamp {
 
                 let res = Self {
                     ref_time,
-                    forecast_time: ref_time + forecast_hour.hours()
+                    forecast_time: ref_time + forecast_hour.hours(),
+                    wind: None
                 };
 
                 Ok(res)
@@ -99,7 +101,8 @@ impl From<(&RefTime, ForecastTime)> for Stamp {
     fn from((ref_time, forecast_time): (&RefTime, ForecastTime)) -> Self {
         Self {
             ref_time: ref_time.clone(),
-            forecast_time
+            forecast_time,
+            wind: None,
         }
     }
 }
@@ -108,14 +111,15 @@ impl From<(&RefTime, u16)> for Stamp {
     fn from((ref_time, h): (&RefTime, u16)) -> Self {
         Self {
             ref_time: ref_time.clone(),
-            forecast_time: *ref_time + Duration::hours(h as i64)
+            forecast_time: *ref_time + Duration::hours(h as i64),
+            wind: None,
         }
     }
 }
 
 
 #[derive(thiserror::Error, Debug)]
-pub(crate) enum StampError {
+pub enum StampError {
     #[error("Wrong filename format `{0}`")]
     FilenameError(String),
 

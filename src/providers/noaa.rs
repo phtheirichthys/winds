@@ -16,6 +16,7 @@ use crate::stamp::{Durations, ForecastTime, ForecastTimeSpec, RefTime, RefTimeSp
 pub(crate) struct Noaa {
     pub(crate) status: Winds,
     gribs_dir: PathBuf,
+    jsons_dir: PathBuf,
     jsons: Vec<Storage>,
 }
 
@@ -35,6 +36,9 @@ impl Noaa {
         let gribs_dir: PathBuf = config.gribs_dir.clone().into();
         Self::create_dir(&gribs_dir);
 
+        let jsons_dir: PathBuf = config.jsons_dir.clone().into();
+        Self::create_dir(&gribs_dir);
+
         for dir in &config.jsons {
             match dir {
                 Storage::Local{dir} => Self::create_dir(&dir.into()),
@@ -52,6 +56,7 @@ impl Noaa {
                 forecasts: Default::default()
             })),
             gribs_dir,
+            jsons_dir,
             jsons: config.jsons.clone(),
         })
     }
@@ -98,7 +103,7 @@ impl Noaa {
                 match self.download_grib(&stamp).await {
                     Ok(()) => {
                         something_new = true;
-                        self.on_stamp_downloaded(stamp).await;
+                        self.on_stamp_downloaded(true, false, stamp).await;
                     },
                     Err(Error::StampNotFoundError()) => {
                         if first {
@@ -124,7 +129,10 @@ impl Noaa {
 
         let url = format!("https://nomads.ncep.noaa.gov/cgi-bin/filter_gfs_1p00.pl");
 
-        let client = reqwest::Client::new();
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(30))
+            .build()
+            .unwrap();
         let req = client.get(url).query(&[
             ("dir", format!("/gfs.{}/{}/atmos", stamp.ref_time.format("%Y%m%d"), stamp.ref_time.format("%H")).as_str()),
             ("file", format!("gfs.t{}z.pgrb2.1p00.f{:03}", stamp.ref_time.format("%H"), stamp.forecast_hour()).as_str()),
@@ -193,6 +201,10 @@ impl Provider for Noaa {
         self.gribs_dir.clone()
     }
 
+    fn jsons_dir(&self) -> PathBuf {
+        self.jsons_dir.clone()
+    }
+
     fn jsons_storages(&self) -> Vec<Storage> {
         self.jsons.clone()
     }
@@ -240,27 +252,4 @@ impl Provider for Noaa {
         }
     }
 
-    async fn on_stamp_downloaded(&self, stamp: Stamp) {
-
-        if self.status.contains_key(&stamp.forecast_time).await && stamp.forecast_hour() > 6 { // keep previous forecast to merge
-            self.status.remove_forecast(&stamp.forecast_time, async move |stamp| {
-                info!("Delete `{}`", stamp);
-                match fs::remove_file(self.gribs_dir().join(stamp.file_name())) {
-                    Ok(()) => {},
-                    Err(e) => error!("Error removing file {} : {}", stamp.file_name(), e),
-                }
-                for storage in self.jsons_storages() {
-                    match storage.remove(stamp.file_name()).await {
-                        Ok(()) => {},
-                        Err(e) => error!("{} - Error removing file {} from storage {} : {}", self.id(), stamp.file_name(), storage, e),
-                    }
-                }
-            }).await;
-        }
-
-        self.status().set_last(stamp.ref_time, stamp.forecast_hour(), self.max_forecast_hour()).await;
-        self.status().add_forecast(stamp).await;
-
-        debug!("{} - Status : {:?}", self.id(), self.status.read().await);
-    }
 }

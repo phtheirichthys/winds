@@ -3,8 +3,14 @@ providers:
     enabled: true
     #init: 2021-12-22T18:00:00Z
     gribs_dir: data/noaa/gribs
+    jsons_dir: data/noaa/jsons
     jsons:
     - dir: data/noaa/jsons
+#    - endpoint: https://s3.gra.cloud.ovh.net
+#      region: gra
+#      bucket: noaa-jsons
+#      access_key: 3a7bc20dc28f44cbb51f0dbdc1fc8393
+#      secret_key: 35c192b0c0414dce8611c8cc95fb68a6
 - meteofrance:
     enabled: false
     token: ""

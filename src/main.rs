@@ -1,4 +1,4 @@
-#![feature(hash_drain_filter, async_closure)]
+#![feature(btree_drain_filter, async_closure)]
 #![feature(exit_status_error)]
 
 use std::collections::HashMap;
@@ -13,6 +13,7 @@ mod config;
 mod providers;
 mod error;
 mod stamp;
+mod grib;
 
 #[derive(Debug, StructOpt)]
 struct Cli {

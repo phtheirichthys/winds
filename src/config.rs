@@ -11,8 +11,8 @@ use serde::{Serialize, Deserialize};
 
 #[derive(Default, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct Config {
-  pub(crate) providers: Vec<ProviderConfig>,
+pub struct Config {
+  pub providers: Vec<ProviderConfig>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -23,10 +23,11 @@ pub(crate) enum ProviderConfig {
 }
 
 #[derive(Default, Debug, Serialize, Deserialize)]
-pub(crate) struct NoaaProviderConfig {
-  pub(crate) enabled: bool,
+pub struct NoaaProviderConfig {
+  pub enabled: bool,
   pub(crate) init: Option<DateTime<Utc>>,
-  pub(crate) gribs_dir: String,
+  pub gribs_dir: String,
+  pub jsons_dir: String,
   pub(crate) jsons: Vec<Storage>,
 }
 

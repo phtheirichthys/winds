@@ -1,9 +1,10 @@
 use crate::stamp::StampError;
+use crate::grib;
 
-pub(crate) type Result<T, E = Error> = std::result::Result<T, E>;
+pub type Result<T, E = Error> = std::result::Result<T, E>;
 
 #[derive(thiserror::Error, Debug)]
-pub(crate) enum Error {
+pub enum Error {
     #[error("Error")]
     Error(),
 
@@ -27,6 +28,9 @@ pub(crate) enum Error {
 
     #[error("ExitStatusError: {0}")]
     ExitStatusError(#[from] std::process::ExitStatusError),
+
+    #[error("GribError: {0}")]
+    GribError(#[from] grib::GribError),
 
     #[error("AnyhowError: {0}")]
     AnyhowError(#[from] anyhow::Error),
