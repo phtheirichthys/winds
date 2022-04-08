@@ -1,5 +1,5 @@
-pub(crate) mod noaa;
-mod json;
+pub mod noaa;
+pub(crate) mod json;
 
 use std::cmp::Ordering;
 use chrono::{DateTime, Duration, Utc};
@@ -12,6 +12,7 @@ use std::io::{BufReader, Read, Seek};
 use std::ops::{Neg, Sub};
 use std::path::{PathBuf};
 use std::sync::Arc;
+use anyhow::anyhow;
 use async_process::Command;
 use tempfile::NamedTempFile;
 use tokio::{self, time};
@@ -24,18 +25,80 @@ use crate::grib;
 use crate::error::{Error, Result};
 use crate::grib::sections::sect3::Grid;
 use crate::grib::sections::sect4::{Product, Surface};
+use crate::providers::json::Message;
 use crate::providers::noaa::Noaa;
 use crate::stamp::{ForecastTime, ForecastTimeSpec, RefTime, Stamp};
 
 pub struct Wind {
-  lat0: f64,
-  lon0: f64,
-  delta_lat: f64,
-  delta_lon: f64,
+  pub lat0: f64,
+  pub lon0: f64,
+  pub delta_lat: f64,
+  pub delta_lon: f64,
   n_lat: usize,
   n_lon: usize,
-  u: Box<[Box<[f64]>]>,
-  v: Box<[Box<[f64]>]>,
+  pub u: Box<[Box<[f64]>]>,
+  pub v: Box<[Box<[f64]>]>,
+}
+
+impl TryFrom<Vec<Message>> for Wind {
+  type Error = anyhow::Error;
+
+  fn try_from(messages: Vec<Message>) -> std::result::Result<Self, Self::Error> {
+    let mut wind = None;
+
+    for message in messages {
+      if message.header.discipline == 0 {
+        if message.header.parameter_category == 2 && message.header.surface1_type == 103 && message.header.surface1_value == 10.0 {
+
+          let lat0 = message.header.la1;
+          let lon0 = message.header.lo1;
+          let delta_lat = message.header.dy;
+          let delta_lon = message.header.dx;
+          let n_lat = message.header.ny;
+          let n_lon = message.header.nx;
+
+          match message.header.parameter_number {
+            2 => {
+              let u = build_grid(message.data, n_lat, n_lon);
+
+              let mut wind = wind.get_or_insert(Wind {
+                lat0,
+                lon0,
+                delta_lat,
+                delta_lon,
+                n_lat,
+                n_lon,
+                u: Vec::new().into_boxed_slice(),
+                v: Vec::new().into_boxed_slice(),
+              });
+
+              wind.u = u;
+            },
+            3 => {
+              let v = build_grid(message.data, n_lat, n_lon);
+
+              let mut wind = wind.get_or_insert(Wind {
+                lat0,
+                lon0,
+                delta_lat,
+                delta_lon,
+                n_lat,
+                n_lon,
+                u: Vec::new().into_boxed_slice(),
+                v: Vec::new().into_boxed_slice(),
+              });
+
+              wind.v = v;
+            }
+            _ => {}
+          }
+
+        }
+      }
+    }
+
+    wind.ok_or(anyhow!("Error loading wind from messages"))
+  }
 }
 
 pub async fn start_provider(provider_config: &ProviderConfig) -> Result<Option<Winds>> {
@@ -46,7 +109,7 @@ pub async fn start_provider(provider_config: &ProviderConfig) -> Result<Option<W
     },
     ProviderConfig::Noaa(config) => {
 
-      let noaa = Noaa::new(config)?;
+      let noaa = Noaa::from_config(config)?;
       let winds = noaa.load(true, false).await?;
       noaa.init(config.init).await;
       tokio::spawn(async move {
@@ -113,115 +176,11 @@ impl JsonProvider for dyn Provider + Sync {
 
 }
 
-
-async fn load_gribs(grib_dir: PathBuf, stamps: &Vec<Stamp>) -> Result<Vec<()>> {
-
-  let mut res = Vec::new();
-  for stamp in stamps {
-    res.push(load_grib(grib_dir.join(stamp.file_name())).await?);
-  }
-
-  Ok(res)
-}
-
-async fn load_grib(grib_filename: PathBuf) -> Result<()> {
-
-  let f = File::open(grib_filename)?;
-  let f = BufReader::new(f);
-
-  let grib = grib::from_reader(f)?;
-
-  for message in grib.messages {
-    let discipline = message.indicator.discipline;
-
-    debug!("Grib : {:?} {:?}", discipline, message.product_definition);
-    let data = message.decode()?;
-
-    if message.indicator.discipline == 0 {
-      match (&message.product_definition.product, &message.grid_definition.grid) {
-        (Product::Product0(product), Grid::Grid0(grid)) => {
-          if product.parameter_category == 2 && product.first_surface == (Surface {
-            surface_type: 103,
-            scale_factor: 0,
-            scaled_value: 10
-          }) {
-
-            let lat0 = grid.la1;
-            let lon0 = grid.lo1;
-            let delta_lat = grid.d_j;
-            let delta_lon = grid.d_i;
-            let nb_lat = grid.n_j as usize;
-            let nb_lon = grid.n_i as usize;
-
-            match product.parameter_number {
-              2 => {
-                let data = build_grid(message.decode()?, nb_lat, nb_lon);
-                debug!("U ok")
-              },
-              3 => {
-                let data = build_grid(message.decode()?, nb_lat, nb_lon);
-                debug!("V ok")
-              }
-              _ => {}
-            }
-
-          }
-        }
-        _ => {}
-      }
-    }
-  }
-
-
-
-  // let grib2 = grib::from_reader(f)?;
-  //
-  // for (index, message) in grib2.iter().enumerate() {
-  //
-  //
-  //   let discipline = message.indicator().discipline;
-  //   let category = message.prod_def().parameter_category();
-  //   let surfaces =  message.prod_def().fixed_surfaces();
-  //
-  //   debug!("Grib : {:?} {:?} {:?}", discipline, category, surfaces);
-  //
-  //   if message.indicator().discipline == 0 && message.prod_def().parameter_category() == Some(2) && message.prod_def().fixed_surfaces().map(|(first, second)| first) == Some((FixedSurface {
-  //       surface_type: 103,
-  //       scale_factor: 0,
-  //       scaled_value: 10 })) {
-  //
-  //     //TODO : use data provided by section 3
-  //     let lat0 = -80.;
-  //     let lon0 = 0.;
-  //     let delta_lat = 1;
-  //     let delta_lon = 1;
-  //     let nb_lat = 181;
-  //     let nb_lon = 360;
-  //
-  //     debug!("Message : {:?}", message.prod_def());
-  //
-  //     match message.prod_def().parameter_number() {
-  //       Some(2) => {
-  //         //let data = build_grid(grib2.get_values(index)?, nb_lat, nb_lon);
-  //         debug!("U ok")
-  //       },
-  //       Some(3) => {
-  //         //let data = build_grid(grib2.get_values(index)?, nb_lat, nb_lon);
-  //         debug!("V ok")
-  //       },
-  //       _ => {}
-  //     }
-  //   }
-  // }
-
-  Ok(())
-}
-
 mod test {
   use anyhow::Result;
   use std::path::PathBuf;
-  use crate::config::NoaaProviderConfig;
-  use crate::providers::{load_grib, Provider};
+  use crate::config::{NoaaProviderConfig, Storage};
+  use crate::providers::Provider;
   use crate::providers::noaa::Noaa;
 
   #[tokio::test]
@@ -232,12 +191,10 @@ mod test {
     }).unwrap_or_default();
     env_logger::init();
 
-    let noaa = Noaa::new(&NoaaProviderConfig {
+    let noaa = Noaa::from_config(&NoaaProviderConfig {
       enabled: true,
       init: None,
-      gribs_dir: "data/noaa/gribs".to_string(),
-      jsons_dir: "data/noaa/jsons".to_string(),
-      jsons: vec![]
+      jsons: Storage::Local { dir: "data/noaa/jsons".to_string() }
     })?;
 
     noaa.load(false, true).await?;
@@ -274,15 +231,11 @@ fn build_grid(data: Box<[f64]>, nb_lat: usize, nb_lon: usize) -> Box<[Box<[f64]>
 }
 
 #[async_trait]
-pub(crate) trait Provider {
+pub trait Provider {
 
   fn id(&self) -> String;
 
-  fn gribs_dir(&self) -> PathBuf;
-
-  fn jsons_dir(&self) -> PathBuf;
-
-  fn jsons_storages(&self) -> Vec<Storage>;
+  fn jsons_storage(&self) -> Storage;
 
   fn max_forecast_hour(&self) -> u16;
 
@@ -297,19 +250,7 @@ pub(crate) trait Provider {
   async fn load(&self, delete: bool, load: bool) -> Result<Winds> {
     info!("{} - Load provider", self.id());
 
-    let mut stamps: Vec<Stamp> = Vec::new();
-
-    // Walk throw grib files
-    let paths = fs::read_dir(self.gribs_dir())?;
-    for entry in paths {
-      if let Ok(entry) = entry {
-        if let Ok(metadata) = entry.metadata() {
-          if metadata.is_file() {
-            stamps.push((&entry.path()).try_into()?);
-          }
-        }
-      }
-    }
+    let mut stamps = self.jsons_storage().list().await?;
 
     stamps.sort_by(|a, b| {
       match a.forecast_time.cmp(&b.forecast_time) {
@@ -325,18 +266,18 @@ pub(crate) trait Provider {
     let mut stamps = stamps.into_iter().peekable();
     while let Some(stamp) = stamps.next() {
 
-      if let Some(next_stamp) = stamps.peek() {
-        if next_stamp.from_now() < chrono::Duration::zero() {
-          info!("{} - Delete `{}` {}", self.id(), stamp, stamp.file_name());
-          fs::remove_file(self.gribs_dir().join(stamp.file_name()))?;
-          for storage in self.jsons_storages() {
-            storage.remove(stamp.file_name()).await?;
+      if delete {
+        if let Some(next_stamp) = stamps.peek() {
+          if next_stamp.from_now() < chrono::Duration::zero() {
+            info!("{} - Delete `{}` {}", self.id(), stamp, stamp.file_name());
+            self.jsons_storage().remove(stamp.file_name()).await?;
+            continue;
           }
-          continue;
         }
+
+        debug!("Keep `{}` {}", stamp, stamp.file_name());
       }
 
-      debug!("Keep `{}` {}", stamp, stamp.file_name());
       match self.on_stamp_downloaded(delete, load, stamp).await {
         Err(e) => {
           error!("Error executing downloaded callback : {:?}", e);
@@ -344,7 +285,6 @@ pub(crate) trait Provider {
         Ok(_) => {}
       }
     }
-
 
     if let Some(last) = self.status().get_last().await {
       info!("{} - `{}Z+{:03}` : {}%", self.id(), last.ref_time.format("%H"), last.forecast_hour(), self.status().get_progress().await);
@@ -361,9 +301,10 @@ pub(crate) trait Provider {
       let mut status = status.write().await;
 
       // Remove forecasts for which files were deleted
+      let storage = self.jsons_storage().clone();
       status.forecasts.retain(|_, stamps| {
         for stamp in stamps {
-          if !self.jsons_dir().join(stamp.file_name()).exists() {
+          if !storage.exists_blocking(stamp.file_name()).unwrap_or(false) {
             return false;
           }
         }
@@ -371,19 +312,7 @@ pub(crate) trait Provider {
       });
     }
 
-    let mut stamps: Vec<Stamp> = Vec::new();
-
-    // Walk throw grib files
-    let paths = fs::read_dir(self.gribs_dir())?;
-    for entry in paths {
-      if let Ok(entry) = entry {
-        if let Ok(metadata) = entry.metadata() {
-          if metadata.is_file() {
-            stamps.push((&entry.path()).try_into()?);
-          }
-        }
-      }
-    }
+    let mut stamps = self.jsons_storage().list().await?;
 
     stamps.sort_by(|a, b| {
       match a.forecast_time.cmp(&b.forecast_time) {
@@ -465,9 +394,7 @@ pub(crate) trait Provider {
     match output.status.exit_ok() {
       Ok(()) => {
 
-        for to in self.jsons_storages() {
-          to.save(&json_path, stamp.file_name()).await?;
-        }
+        self.jsons_storage().save(&json_path, stamp.file_name()).await?;
 
         std::fs::remove_file(&json_path).unwrap_or_default();
 
@@ -486,15 +413,9 @@ pub(crate) trait Provider {
       if self.status().contains_key(&stamp.forecast_time).await && stamp.forecast_hour() > 6 { // keep previous forecast to merge
         self.status().remove_forecast(&stamp.forecast_time, async move |stamp| {
           info!("Delete `{}`", stamp);
-          match fs::remove_file(self.gribs_dir().join(stamp.file_name())) {
+          match self.jsons_storage().remove(stamp.file_name()).await {
             Ok(()) => {},
-            Err(e) => error!("Error removing file {} : {}", stamp.file_name(), e),
-          }
-          for storage in self.jsons_storages() {
-            match storage.remove(stamp.file_name()).await {
-              Ok(()) => {},
-              Err(e) => error!("{} - Error removing file {} from storage {} : {}", self.id(), stamp.file_name(), storage, e),
-            }
+            Err(e) => error!("{} - Error removing file {} from storage {} : {}", self.id(), stamp.file_name(), self.jsons_storage(), e),
           }
         }).await;
       }
@@ -504,7 +425,8 @@ pub(crate) trait Provider {
 
     let mut stamp = stamp;
     if load {
-      stamp.wind  = Some(json::load(self.jsons_dir().join(&stamp.file_name())).await?);
+      debug!("Load `{}` {}", stamp, stamp.file_name());
+      stamp.wind  = Some(Arc::new(self.jsons_storage().get(stamp.file_name()).await?.try_into()?));
     }
 
     self.status().add_forecast(stamp).await;
@@ -522,15 +444,9 @@ pub(crate) trait Provider {
     while let Some((_, stamps)) = status.forecasts.drain_filter(|forecast, _| forecast.from_now() < Duration::hours(-3)).next() {
       for stamp in stamps {
         info!("{} - Delete {}", self.id(), stamp);
-        match fs::remove_file(self.gribs_dir().join(stamp.file_name())) {
+        match self.jsons_storage().remove(stamp.file_name()).await {
           Ok(()) => {},
-          Err(e) => error!("{} - Error removing file {} : {}", self.id(), stamp.file_name(), e),
-        }
-        for storage in self.jsons_storages() {
-          match storage.remove(stamp.file_name()).await {
-            Ok(()) => {},
-            Err(e) => error!("{} - Error removing file {} from storage {} : {}", self.id(), stamp.file_name(), storage, e),
-          }
+          Err(e) => error!("{} - Error removing file {} from storage {} : {}", self.id(), stamp.file_name(), self.jsons_storage(), e),
         }
       }
     }
@@ -541,7 +457,7 @@ pub(crate) trait Provider {
 pub type Winds = Arc<RwLock<Status>>;
 
 #[async_trait]
-pub(crate) trait WindsSpec {
+pub trait WindsSpec {
   async fn get_last(&self) -> Option<Stamp>;
 
   async fn get_progress(&self) -> u8;
@@ -555,6 +471,8 @@ pub(crate) trait WindsSpec {
   async fn set_last(&self, ref_time: DateTime<Utc>, forecast_time: u16, max_forecast_time: u16);
 
   async fn contains_key(&self, forecast_time: &ForecastTime) -> bool;
+
+  async fn find(&self, m: &DateTime<Utc>) -> (Vec<Arc<Wind>>, Option<Vec<Arc<Wind>>>, f64);
 }
 
 #[async_trait]
@@ -611,15 +529,59 @@ impl WindsSpec for Winds {
 
     it.forecasts.contains_key(forecast_time)
   }
+
+  async fn find(&self, m: &DateTime<Utc>) -> (Vec<Arc<Wind>>, Option<Vec<Arc<Wind>>>, f64) {
+    let status = self.read().await;
+
+    let mut previous: Option<(&ForecastTime, &Vec<Stamp>)> = None;
+    for (i, (forecast_time, stamps)) in status.forecasts.iter().enumerate() {
+      if forecast_time > m {
+        match previous {
+          None => {
+            let w1 = stamps.iter().map_while(|s| {
+              match &s.wind {
+                None => { None }
+                Some(s) => { Some(s.clone()) }
+              }
+            }).collect();
+            return (w1, None, 0.0);
+          }
+          Some((previous_forecast_time, previous_stamps)) => {
+            let h = (m.clone() - previous_forecast_time.clone()).num_minutes();
+            let delta = (forecast_time.clone() - previous_forecast_time.clone()).num_minutes();
+            let w1 = previous_stamps.iter().map_while(|s| match &s.wind {
+              None => { None }
+              Some(s) => { Some(s.clone()) }
+            }).collect();
+            let w2 = stamps.iter().map_while(|s| match &s.wind {
+              None => { None }
+              Some(s) => { Some(s.clone()) }
+            }).collect();
+            return (w1, Some(w2), h as f64 / delta as f64);
+          }
+        }
+      }
+
+      previous = Some((forecast_time, stamps));
+    }
+
+    let (_, previous_stamps) = previous.unwrap();
+    let w1 = previous_stamps.iter().map_while(|s| match &s.wind {
+      None => { None }
+      Some(s) => { Some(s.clone()) }
+    }).collect();
+
+    (w1, None, 0.0)
+  }
 }
 
 pub struct Status {
-  pub provider: String,
+  pub(crate) provider: String,
   pub(crate) provider_name: String,
   pub(crate) current_ref_time: RefTime,
   pub(crate) last: Option<Stamp>,
   pub(crate) progress: u8,
-  pub(crate) forecasts: BTreeMap<ForecastTime, Vec<Stamp>>,
+  pub forecasts: BTreeMap<ForecastTime, Vec<Stamp>>,
 }
 
 impl Display for Status {

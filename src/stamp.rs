@@ -1,5 +1,6 @@
 use std::fmt::{Display, Formatter};
 use std::path::PathBuf;
+use std::sync::Arc;
 use chrono::{DateTime, Duration, DurationRound, TimeZone, Utc};
 use crate::providers::Wind;
 
@@ -47,7 +48,7 @@ pub(crate) trait Durations {
 pub struct Stamp {
     pub ref_time: RefTime,
     pub forecast_time: ForecastTime,
-    pub(crate) wind: Option<Wind>,
+    pub(crate) wind: Option<Arc<Wind>>,
 }
 
 impl Stamp {
@@ -71,12 +72,10 @@ impl Display for Stamp {
     }
 }
 
-impl TryFrom<&PathBuf> for Stamp {
+impl TryFrom<&String> for Stamp {
     type Error = StampError;
 
-    fn try_from(path: &PathBuf) -> Result<Self, Self::Error> {
-        let filename = path.file_name().expect("the file name").to_string_lossy().to_string();
-
+    fn try_from(filename: &String) -> Result<Self, Self::Error> {
         match filename.split('.').collect::<Vec<&str>>()[..] {
             [date, hour] => {
                 let ref_time = Utc.datetime_from_str((String::from(date) + "00").as_str(), "%Y%m%d%H%M")?;
@@ -91,8 +90,21 @@ impl TryFrom<&PathBuf> for Stamp {
                 Ok(res)
             },
             _ => {
-                Err(StampError::FilenameError(filename))
+                Err(StampError::FilenameError(filename.clone()))
             }
+        }
+    }
+}
+
+impl TryFrom<&PathBuf> for Stamp {
+    type Error = StampError;
+
+    fn try_from(path: &PathBuf) -> Result<Self, Self::Error> {
+        let filename = &path.file_name().expect("the file name").to_string_lossy().to_string();
+
+        match filename.try_into() {
+            Ok(stamp) => Ok(stamp),
+            Err(_) => Err(StampError::FilenameError(filename.clone()))
         }
     }
 }

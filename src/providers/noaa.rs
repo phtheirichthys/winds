@@ -13,11 +13,9 @@ use crate::providers::{Provider, Status, WindsSpec, Winds};
 use crate::error::{Error, Result};
 use crate::stamp::{Durations, ForecastTime, ForecastTimeSpec, RefTime, RefTimeSpec, Stamp};
 
-pub(crate) struct Noaa {
+pub struct Noaa {
     pub(crate) status: Winds,
-    gribs_dir: PathBuf,
-    jsons_dir: PathBuf,
-    jsons: Vec<Storage>,
+    jsons: Storage,
 }
 
 impl Noaa {
@@ -32,18 +30,27 @@ impl Noaa {
         }
     }
 
-    pub(crate) fn new(config: &NoaaProviderConfig) -> Result<Self> {
-        let gribs_dir: PathBuf = config.gribs_dir.clone().into();
-        Self::create_dir(&gribs_dir);
+    pub fn new(jsons_dir: String) -> Result<Self> {
+        Self::create_dir(&(&jsons_dir).into());
 
-        let jsons_dir: PathBuf = config.jsons_dir.clone().into();
-        Self::create_dir(&gribs_dir);
+        Ok(Self {
+            status: Arc::new(RwLock::new(Status {
+                provider: "noaa".to_string(),
+                provider_name: "Noaa".to_string(),
+                current_ref_time: Self::current_ref_time(),
+                last: None,
+                progress: 0,
+                forecasts: Default::default()
+            })),
+            jsons: Storage::Local { dir: jsons_dir },
+        })
 
-        for dir in &config.jsons {
-            match dir {
-                Storage::Local{dir} => Self::create_dir(&dir.into()),
-                _ => {}
-            }
+    }
+
+    pub(crate) fn from_config(config: &NoaaProviderConfig) -> Result<Self> {
+        match &config.jsons {
+            Storage::Local{dir} => Self::create_dir(&dir.into()),
+            _ => {}
         }
 
         Ok(Self {
@@ -55,8 +62,6 @@ impl Noaa {
                 progress: 0,
                 forecasts: Default::default()
             })),
-            gribs_dir,
-            jsons_dir,
             jsons: config.jsons.clone(),
         })
     }
@@ -98,7 +103,7 @@ impl Noaa {
 
             let stamp: Stamp = (&ref_time, forecast_time).into();
 
-            if !self.gribs_dir().join(stamp.file_name()).exists() {
+            if !self.jsons.exists(stamp.file_name()).await? {
 
                 match self.download_grib(&stamp).await {
                     Ok(()) => {
@@ -158,8 +163,6 @@ impl Noaa {
 
                         match self.on_file_downloaded(path.to_path_buf(), stamp).await {
                             Ok(()) => {
-                                //std::fs::rename(path, self.gribs_dir().join(stamp.file_name()))?;
-                                std::fs::copy(&path, self.gribs_dir().join(stamp.file_name()))?;
                                 std::fs::remove_file(path).unwrap_or_default();
 
                                 info!("`{}` Downloaded", stamp);
@@ -197,15 +200,7 @@ impl Provider for Noaa {
         String::from("noaa")
     }
 
-    fn gribs_dir(&self) -> PathBuf {
-        self.gribs_dir.clone()
-    }
-
-    fn jsons_dir(&self) -> PathBuf {
-        self.jsons_dir.clone()
-    }
-
-    fn jsons_storages(&self) -> Vec<Storage> {
+    fn jsons_storage(&self) -> Storage {
         self.jsons.clone()
     }
 

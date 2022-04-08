@@ -1,13 +1,15 @@
 use std::fmt::{Display, Formatter};
 use std::fs;
 use std::fs::File;
-use std::io::{BufReader, Read};
+use std::io::{BufReader, BufWriter, Read};
 use std::path::Path;
 use anyhow::anyhow;
 use chrono::{DateTime, Utc};
 use flate2::Compression;
 use s3::Bucket;
 use serde::{Serialize, Deserialize};
+use crate::providers::json::Message;
+use crate::stamp::Stamp;
 
 #[derive(Default, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -22,13 +24,11 @@ pub enum ProviderConfig {
   Meteofrance(MeteofranceProviderConfig)
 }
 
-#[derive(Default, Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct NoaaProviderConfig {
   pub enabled: bool,
-  pub(crate) init: Option<DateTime<Utc>>,
-  pub gribs_dir: String,
-  pub jsons_dir: String,
-  pub(crate) jsons: Vec<Storage>,
+  pub init: Option<DateTime<Utc>>,
+  pub jsons: Storage,
 }
 
 #[derive(Default, Debug, Serialize, Deserialize)]
@@ -39,7 +39,7 @@ pub struct MeteofranceProviderConfig {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(untagged)]
-pub(crate) enum Storage {
+pub enum Storage {
   Local{
     dir: String
   },
@@ -128,4 +128,113 @@ impl Storage {
 
     Ok(())
   }
+
+  pub(crate) async fn exists(&self, name: String) -> anyhow::Result<bool> {
+    match self {
+      Storage::Local { dir } => {
+        Ok(Path::new(dir).join(name).exists())
+      }
+      Storage::ObjectStorage { endpoint, region, bucket, access_key, secret_key } => {
+        let storage = Bucket::new(&bucket, s3::Region::Custom{ region: region.clone(), endpoint: endpoint.clone() }, s3::creds::Credentials {
+          access_key: Some(access_key.clone()),
+          secret_key: Some(secret_key.clone()),
+          security_token: None,
+          session_token: None
+        }).unwrap();
+
+        let list_result = storage.list(String::from("/"), Some(String::from("/"))).await?;
+        Ok(list_result.iter().find(|o| o.name == name).is_some())
+      }
+    }
+  }
+
+  pub(crate) fn exists_blocking(&self, name: String) -> anyhow::Result<bool> {
+    match self {
+      Storage::Local { dir } => {
+        Ok(Path::new(dir).join(name).exists())
+      }
+      Storage::ObjectStorage { endpoint, region, bucket, access_key, secret_key } => {
+        let storage = Bucket::new(&bucket, s3::Region::Custom{ region: region.clone(), endpoint: endpoint.clone() }, s3::creds::Credentials {
+          access_key: Some(access_key.clone()),
+          secret_key: Some(secret_key.clone()),
+          security_token: None,
+          session_token: None
+        }).unwrap();
+
+        let list_result = storage.list_blocking(String::from("/"), Some(String::from("/")))?;
+        Ok(list_result.iter().find(|o| o.name == name).is_some())
+      }
+    }
+  }
+
+  pub(crate) async fn list(&self) -> anyhow::Result<Vec<Stamp>> {
+    match self {
+      Storage::Local { dir } => {
+        let mut stamps: Vec<Stamp> = Vec::new();
+
+        // Walk throw json files
+        let paths = fs::read_dir(dir)?;
+        for entry in paths {
+          if let Ok(entry) = entry {
+            if let Ok(metadata) = entry.metadata() {
+              if metadata.is_file() {
+                stamps.push((&entry.path()).try_into()?);
+              }
+            }
+          }
+        }
+
+        Ok(stamps)
+      }
+      Storage::ObjectStorage { endpoint, region, bucket, access_key, secret_key } => {
+        let storage = Bucket::new(&bucket, s3::Region::Custom{ region: region.clone(), endpoint: endpoint.clone() }, s3::creds::Credentials {
+          access_key: Some(access_key.clone()),
+          secret_key: Some(secret_key.clone()),
+          security_token: None,
+          session_token: None
+        }).unwrap();
+
+        let list_result = storage.list(String::from("/"), Some(String::from("/"))).await?;
+        Ok(list_result.iter().filter_map(|o| {
+          match Stamp::try_from(&o.name) {
+            Ok(stamp) => Some(stamp),
+            Err(_) => None,
+          }
+        }).collect())
+      }
+    }
+  }
+
+  pub(crate) async fn get(&self, name: String) -> anyhow::Result<Vec<Message>> {
+    match self {
+      Storage::Local { dir } => {
+        let f = File::open(Path::new(dir).join(name))?;
+        let f = BufReader::new(f);
+
+        let messages: Vec<Message> = serde_json::from_reader(f)?;
+
+        Ok(messages)
+      }
+      Storage::ObjectStorage { endpoint, region, bucket, access_key, secret_key } => {
+        let storage = Bucket::new(&bucket, s3::Region::Custom{ region: region.clone(), endpoint: endpoint.clone() }, s3::creds::Credentials {
+          access_key: Some(access_key.clone()),
+          secret_key: Some(secret_key.clone()),
+          security_token: None,
+          session_token: None
+        }).unwrap();
+
+
+        let (buf, status_code) = storage.get_object(name).await?;
+
+        let messages: Vec<Message> = serde_json::from_slice(buf.as_slice())?;
+
+        if status_code != 204 {
+          return Err(anyhow!("Error getting file from s3 bucket : {}", status_code));
+        }
+
+        Ok(messages)
+      }
+    }
+  }
+
 }
