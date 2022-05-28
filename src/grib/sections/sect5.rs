@@ -1,5 +1,4 @@
 use crate::grib::utils::{Buffer, GribInt};
-use crate::read_as;
 
 pub struct DataRepresentationDefinition {
     pub num_points: usize,

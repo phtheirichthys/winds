@@ -1,5 +1,4 @@
 use std::iter;
-use num::ToPrimitive;
 use crate::grib::GribError::ParseError;
 use crate::grib::sections::sect5::{Data, Data2, Data3, DataRepresentationDefinition};
 use crate::grib::utils::BitwiseIterator;

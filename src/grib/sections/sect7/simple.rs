@@ -1,8 +1,7 @@
-use std::io::Read;
 use num::ToPrimitive;
 use crate::grib::GribError;
 use crate::grib::GribError::ParseError;
-use crate::grib::sections::sect5::{Data, Data0, DataRepresentationDefinition};
+use crate::grib::sections::sect5::{Data, DataRepresentationDefinition};
 use crate::grib::sections::sect7::Grib2DataDecoder;
 use crate::grib::utils::BitwiseIterator;
 

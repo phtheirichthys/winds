@@ -1,8 +1,7 @@
 use crate::grib::GribError::ParseError;
 use crate::grib::sections::sect5::{Data, DataRepresentationDefinition};
 use crate::grib::sections::sect7::{Grib2DataDecoder, groups};
-use crate::grib::utils::{BitwiseIterator, GribInt};
-use std::iter;
+use crate::grib::utils::GribInt;
 use crate::grib::sections::sect7::complex::ComplexPackingDecoderIterator;
 use crate::grib::sections::sect7::simple::SimpleDecoderIterator;
 use crate::read_as;

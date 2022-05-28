@@ -1,7 +1,6 @@
 pub mod sections;
 mod utils;
 
-use std::collections::HashMap;
 use std::io::Read;
 use chrono::{TimeZone, Utc};
 use crate::grib::sections::{SectionHeader, Indicator, Section};

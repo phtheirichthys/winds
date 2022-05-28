@@ -1,9 +1,9 @@
 use std::fs::File;
 use std::io::BufReader;
-use anyhow::{anyhow, Result};
-use serde::{Serialize, Deserialize};
+use anyhow::Result;
+use serde::Deserialize;
 use std::path::PathBuf;
-use crate::providers::{build_grid, Wind};
+use crate::providers::Wind;
 use crate::stamp::Stamp;
 
 #[derive(Deserialize, Debug)]
@@ -29,7 +29,7 @@ pub struct Header {
     pub dy: f64,
 }
 
-pub async fn load_all(jsons_dir: PathBuf, stamps: &Vec<Stamp>) -> Result<Vec<Wind>> {
+pub async fn load_all(stamps: &Vec<Stamp>) -> Result<Vec<Wind>> {
 
     let mut res = Vec::new();
     for stamp in stamps {

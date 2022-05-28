@@ -1,7 +1,7 @@
 use std::fmt::{Display, Formatter};
 use std::fs;
 use std::fs::File;
-use std::io::{BufReader, BufWriter, Read};
+use std::io::{BufReader, Read};
 use std::path::Path;
 use anyhow::anyhow;
 use chrono::{DateTime, Utc};

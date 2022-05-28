@@ -1,6 +1,4 @@
-use std::io::Read;
-use crate::grib::Result;
-use crate::grib::sections::sect5::{Data0, DataRepresentationDefinition};
+use crate::grib::sections::sect5::DataRepresentationDefinition;
 
 pub(crate) mod simple;
 pub(crate) mod complex;

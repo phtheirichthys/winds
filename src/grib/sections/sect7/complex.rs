@@ -2,7 +2,6 @@ use crate::grib::GribError::ParseError;
 use crate::grib::sections::sect5::{Data, DataRepresentationDefinition};
 use crate::grib::sections::sect7::{Grib2DataDecoder, groups};
 use crate::grib::utils::{BitwiseIterator, GribInt};
-use std::iter;
 use crate::grib::sections::sect7::simple::SimpleDecoderIterator;
 
 pub(crate) struct GridPointDataComplexPackingDecoder {}
@@ -51,7 +50,7 @@ impl<'a, I: Iterator<Item = (i64, usize, usize)>> Iterator for ComplexPackingDec
 
     fn next(&mut self) -> Option<Vec<i64>> {
 
-        match (self.groups_iter.next()) {
+        match self.groups_iter.next() {
             Some((reference_value, width, length)) => {
 
                 //let reference_value = reference_value as i32;

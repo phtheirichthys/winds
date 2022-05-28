@@ -5,11 +5,8 @@ use std::cmp::Ordering;
 use chrono::{DateTime, Duration, Utc};
 use std::collections::BTreeMap;
 use std::fmt::{Display, Formatter};
-use std::fs;
-use std::fs::File;
 use std::future::Future;
-use std::io::{BufReader, Read, Seek};
-use std::ops::{Neg, Sub};
+use std::ops::Sub;
 use std::path::{PathBuf};
 use std::sync::Arc;
 use anyhow::anyhow;
@@ -19,12 +16,8 @@ use tokio::{self, time};
 use tokio::sync::{RwLock};
 use crate::config::{MeteofranceProviderConfig, NoaaProviderConfig, ProviderConfig, Storage};
 use crate::error;
-use cached::proc_macro::cached;
-use crate::grib;
 
 use crate::error::{Error, Result};
-use crate::grib::sections::sect3::Grid;
-use crate::grib::sections::sect4::{Product, Surface};
 use crate::providers::json::Message;
 use crate::providers::noaa::Noaa;
 use crate::stamp::{ForecastTime, ForecastTimeSpec, RefTime, Stamp};
@@ -149,7 +142,7 @@ impl JsonProvider for dyn Provider + Sync {
 
     if keys[0] > datetime {
       return Ok((
-        Some(json::load_all(self.jsons_dir(), status.forecasts.get(&keys[0]).unwrap()).await?),
+        Some(json::load_all(status.forecasts.get(&keys[0]).unwrap()).await?),
         None,
         0.0
         ))
@@ -160,15 +153,15 @@ impl JsonProvider for dyn Provider + Sync {
         let h = keys[i-1].sub(datetime).num_seconds() as f64;
         let delta = keys[i-1].sub(keys[i]).num_seconds() as f64;
         return Ok((
-          Some(json::load_all(self.jsons_dir(), status.forecasts.get(&keys[i-1]).unwrap()).await?),
-          Some(json::load_all(self.jsons_dir(), status.forecasts.get(&keys[i]).unwrap()).await?),
+          Some(json::load_all(status.forecasts.get(&keys[i-1]).unwrap()).await?),
+          Some(json::load_all(status.forecasts.get(&keys[i]).unwrap()).await?),
           h / delta
         ));
       }
     }
 
     Ok((
-      Some(json::load_all(self.jsons_dir(), status.forecasts.get(keys.last().ok_or(error::Error::Error())?).unwrap()).await?),
+      Some(json::load_all(status.forecasts.get(keys.last().ok_or(error::Error::Error())?).unwrap()).await?),
       None,
       0.0
     ))
@@ -177,12 +170,6 @@ impl JsonProvider for dyn Provider + Sync {
 }
 
 mod test {
-  use anyhow::Result;
-  use std::path::PathBuf;
-  use crate::config::{NoaaProviderConfig, Storage};
-  use crate::providers::Provider;
-  use crate::providers::noaa::Noaa;
-
   #[tokio::test]
   async fn load_grib_test() -> Result<()>{
 
@@ -294,7 +281,7 @@ pub trait Provider {
   }
 
   async fn refresh(&self) -> Result<()> {
-    info!("{} - Refresh provider", self.id());
+    debug!("{} - Refresh provider", self.id());
 
     {
       let status = self.status();

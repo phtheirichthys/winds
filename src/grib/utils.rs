@@ -1,6 +1,6 @@
 use std::marker;
 use std::ops::{BitOr, Shl, Shr};
-use num::{FromPrimitive, ToPrimitive};
+use num::FromPrimitive;
 
 pub(crate) trait GribInt<I> {
     fn as_grib_int(&self) -> I;
