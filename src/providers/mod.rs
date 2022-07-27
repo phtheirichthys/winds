@@ -4,7 +4,7 @@ pub(crate) mod json;
 use std::cmp::Ordering;
 use chrono::{DateTime, Duration, Utc};
 use std::collections::BTreeMap;
-use std::fmt::{Display, Formatter};
+use std::fmt::{Debug, Display, Formatter};
 use std::future::Future;
 use std::ops::Sub;
 use std::path::{PathBuf};
@@ -31,6 +31,19 @@ pub struct Wind {
   n_lon: usize,
   pub u: Box<[Box<[f64]>]>,
   pub v: Box<[Box<[f64]>]>,
+}
+
+impl Debug for Wind {
+  fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    f.debug_struct("Wind")
+        .field("lat0", &self.lat0)
+        .field("lon0", &self.lon0)
+        .field("delta_lat", &self.delta_lat)
+        .field("delta_lon", &self.delta_lon)
+        .field("n_lat", &self.n_lat)
+        .field("n_lon", &self.n_lon)
+        .finish()
+  }
 }
 
 impl TryFrom<Vec<Message>> for Wind {
@@ -202,9 +215,9 @@ fn build_grid(data: Box<[f64]>, nb_lat: usize, nb_lon: usize) -> Box<[Box<[f64]>
   let mut grid = Vec::with_capacity(nb_lat); //vec![vec![0f64; nb_lon]; nb_lat];
 
   let mut p = 0;
-  for j in 0..nb_lat {
+  for _ in 0..nb_lat {
     let mut raw = Vec::with_capacity(nb_lon);
-    for i in 0..nb_lon-1 {
+    for _ in 0..nb_lon-1 {
       raw.push(data[p]);
       p += 1;
     }
@@ -540,6 +553,9 @@ impl WindsSpec for Winds {
               None => { None }
               Some(s) => { Some(s.clone()) }
             }).collect();
+            if h == 0 {
+              return (w1, None, 0.0);
+            }
             let w2 = stamps.iter().map_while(|s| match &s.wind {
               None => { None }
               Some(s) => { Some(s.clone()) }
