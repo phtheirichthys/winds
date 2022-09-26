@@ -1,5 +1,6 @@
 pub mod noaa;
 pub(crate) mod json;
+pub mod zezo;
 
 use std::cmp::Ordering;
 use chrono::{DateTime, Duration, Utc};
@@ -14,12 +15,13 @@ use async_process::Command;
 use tempfile::NamedTempFile;
 use tokio::{self, time};
 use tokio::sync::{RwLock};
-use crate::config::{MeteofranceProviderConfig, NoaaProviderConfig, ProviderConfig, Storage};
+use crate::config::{MeteofranceProviderConfig, NoaaProviderConfig, ProviderConfig, Storage, ZezoProviderConfig};
 use crate::error;
 
 use crate::error::{Error, Result};
 use crate::providers::json::Message;
 use crate::providers::noaa::Noaa;
+use crate::providers::zezo::Zezo;
 use crate::stamp::{ForecastTime, ForecastTimeSpec, RefTime, Stamp};
 
 pub struct Wind {
@@ -129,6 +131,19 @@ pub async fn start_provider(provider_config: &ProviderConfig) -> Result<Option<W
     ProviderConfig::Meteofrance(_config) => {
       todo!()
     }
+    ProviderConfig::Zezo(ZezoProviderConfig { enabled: false, .. }) => {
+      Ok(None)
+    },
+    ProviderConfig::Zezo(config) => {
+
+      let zezo = Zezo::from_config(config)?;
+      let winds = zezo.load(true, false).await?;
+      zezo.init(config.init).await;
+      tokio::spawn(async move {
+        zezo.start().await;
+      });
+      Ok(Some(winds))
+    },
   }
 }
 
@@ -426,7 +441,7 @@ pub trait Provider {
     let mut stamp = stamp;
     if load {
       debug!("Load `{}` {}", stamp, stamp.file_name());
-      stamp.wind  = Some(Arc::new(self.jsons_storage().get(stamp.file_name()).await?.try_into()?));
+      stamp.wind  = Some(Arc::new(self.load_stamp(&stamp).await?.try_into()?));
     }
 
     self.status().add_forecast(stamp).await;
@@ -435,6 +450,8 @@ pub trait Provider {
 
     Ok(())
   }
+
+  async fn load_stamp(&self, stamp: &Stamp) -> Result<Wind>;
 
   async fn clean(&self) {
 

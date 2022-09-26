@@ -21,7 +21,8 @@ pub struct Config {
 #[serde(rename_all = "camelCase")]
 pub enum ProviderConfig {
   Noaa(NoaaProviderConfig),
-  Meteofrance(MeteofranceProviderConfig)
+  Meteofrance(MeteofranceProviderConfig),
+  Zezo(ZezoProviderConfig),
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -29,6 +30,13 @@ pub struct NoaaProviderConfig {
   pub enabled: bool,
   pub init: Option<DateTime<Utc>>,
   pub jsons: Storage,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ZezoProviderConfig {
+  pub enabled: bool,
+  pub init: Option<DateTime<Utc>>,
+  pub pngs: Storage,
 }
 
 #[derive(Default, Debug, Serialize, Deserialize)]
@@ -237,4 +245,15 @@ impl Storage {
     }
   }
 
+  pub(crate) async fn open(&self, name: String) -> anyhow::Result<BufReader<File>> {
+    match self {
+      Storage::Local { dir } => {
+        let f = File::open(Path::new(dir).join(name))?;
+        Ok(BufReader::new(f))
+      }
+      Storage::ObjectStorage { endpoint, region, bucket, access_key, secret_key } => {
+        todo!()
+      }
+    }
+  }
 }

@@ -32,6 +32,9 @@ pub enum Error {
     #[error("GribError: {0}")]
     GribError(#[from] grib::GribError),
 
+    #[error("ImageError: {0}")]
+    ImageError(#[from] image::ImageError),
+
     #[error("AnyhowError: {0}")]
     AnyhowError(#[from] anyhow::Error),
 

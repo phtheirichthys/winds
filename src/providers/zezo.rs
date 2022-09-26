@@ -4,21 +4,23 @@ use std::fs;
 use std::io::Write;
 use std::ops::Neg;
 use std::sync::Arc;
-use chrono::{DateTime, Duration, Utc};
+use chrono::{DateTime, Duration, Timelike, Utc};
 use http::StatusCode;
+use image::GenericImageView;
+use image::io::Reader as ImageReader;
 use tempfile::NamedTempFile;
 use tokio::sync::{RwLock};
-use crate::config::{NoaaProviderConfig, Storage};
+use crate::config::{NoaaProviderConfig, Storage, ZezoProviderConfig};
 use crate::providers::{Provider, Status, WindsSpec, Winds, Wind};
 use crate::error::{Error, Result};
 use crate::stamp::{Durations, ForecastTime, ForecastTimeSpec, RefTime, RefTimeSpec, Stamp};
 
-pub struct Noaa {
+pub struct Zezo {
     pub(crate) status: Winds,
-    jsons: Storage,
+    pngs: Storage,
 }
 
-impl Noaa {
+impl Zezo {
     fn create_dir(dir: &PathBuf) {
         if !dir.exists() {
             if let Err(e) = fs::create_dir_all(dir) {
@@ -30,39 +32,39 @@ impl Noaa {
         }
     }
 
-    pub fn new(jsons_dir: String) -> Result<Self> {
-        Self::create_dir(&(&jsons_dir).into());
+    pub fn new(pngs_dir: String) -> Result<Self> {
+        Self::create_dir(&(&pngs_dir).into());
 
         Ok(Self {
             status: Arc::new(RwLock::new(Status {
-                provider: "noaa".to_string(),
-                provider_name: "Noaa".to_string(),
+                provider: "zezo".to_string(),
+                provider_name: "Zezo".to_string(),
                 current_ref_time: Self::current_ref_time(),
                 last: None,
                 progress: 0,
                 forecasts: Default::default()
             })),
-            jsons: Storage::Local { dir: jsons_dir },
+            pngs: Storage::Local { dir: pngs_dir },
         })
 
     }
 
-    pub(crate) fn from_config(config: &NoaaProviderConfig) -> Result<Self> {
-        match &config.jsons {
+    pub(crate) fn from_config(config: &ZezoProviderConfig) -> Result<Self> {
+        match &config.pngs {
             Storage::Local{dir} => Self::create_dir(&dir.into()),
             _ => {}
         }
 
         Ok(Self {
             status: Arc::new(RwLock::new(Status {
-                provider: "noaa".to_string(),
-                provider_name: "Noaa".to_string(),
+                provider: "zezo".to_string(),
+                provider_name: "Zezo".to_string(),
                 current_ref_time: Self::current_ref_time(),
                 last: None,
                 progress: 0,
                 forecasts: Default::default()
             })),
-            jsons: config.jsons.clone(),
+            pngs: config.pngs.clone(),
         })
     }
 
@@ -103,9 +105,9 @@ impl Noaa {
 
             let stamp: Stamp = (&ref_time, forecast_time).into();
 
-            if !self.jsons.exists(stamp.file_name()).await? {
+            if !self.pngs.exists(stamp.file_name()).await? {
 
-                match self.download_grib(&stamp).await {
+                match self.download_png(&stamp).await {
                     Ok(()) => {
                         something_new = true;
                         self.on_stamp_downloaded(true, false, stamp).await;
@@ -117,7 +119,7 @@ impl Noaa {
                         break;
                     }
                     Err(e) => {
-                        error!("Error downloading grib `{}` : {:?}", stamp, e);
+                        error!("Error downloading png `{}` : {:?}", stamp, e);
                         break;
                     }
                 }
@@ -130,25 +132,15 @@ impl Noaa {
         Ok(something_new)
     }
 
-    async fn download_grib(&self, stamp: &Stamp) -> Result<()> {
+    async fn download_png(&self, stamp: &Stamp) -> Result<()> {
 
-        let url = format!("https://nomads.ncep.noaa.gov/cgi-bin/filter_gfs_1p00.pl");
+        let url = format!("http://fr.zezo.org/windp/{}_{:03}_{}.png", stamp.forecast_time.format("%Y%m%d"), stamp.forecast_time.hour(), stamp.ref_time.hour());
 
         let client = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(30))
             .build()
             .unwrap();
-        let req = client.get(url).query(&[
-            ("dir", format!("/gfs.{}/{}/atmos", stamp.ref_time.format("%Y%m%d"), stamp.ref_time.format("%H")).as_str()),
-            ("file", format!("gfs.t{}z.pgrb2.1p00.f{:03}", stamp.ref_time.format("%H"), stamp.forecast_hour()).as_str()),
-            ("lev_10_m_above_ground", "on"),
-            ("var_UGRD", "on"),
-            ("var_VGRD", "on"),
-            ("leftlon", "0"),
-            ("rightlon", "360"),
-            ("toplat", "90"),
-            ("bottomlat", "-90"),
-        ]).build()?;
+        let req = client.get(url).build()?;
 
         debug!("`{}` Try to download {}", stamp, req.url());
 
@@ -186,22 +178,32 @@ impl Noaa {
                 }
             },
             Err(e) => {
-                error!("Error downloading grib file {} : {}", stamp, e);
+                error!("Error downloading png file {} : {}", stamp, e);
                 Err(Error::Error())
             }
+        }
+    }
+
+    fn vr_speed(d: u8) -> f64 {
+        if d > 127 {
+            let d = 256.0 - d as f64;
+            -(d * d) * (3600.0 / 230400.0) / 1.852
+        } else {
+            let d = d as f64;
+            (d * d) * (3600.0 / 230400.0) / 1.852
         }
     }
 }
 
 #[async_trait]
-impl Provider for Noaa {
+impl Provider for Zezo {
 
     fn id(&self) -> String {
-        String::from("noaa")
+        String::from("zezo")
     }
 
     fn jsons_storage(&self) -> Storage {
-        self.jsons.clone()
+        self.pngs.clone()
     }
 
     fn max_forecast_hour(&self) -> u16 {
@@ -247,7 +249,49 @@ impl Provider for Noaa {
         }
     }
 
+    async fn on_file_downloaded(&self, file: PathBuf, stamp: &Stamp) -> Result<()> {
+        self.pngs.save(&file, stamp.file_name()).await?;
+
+        std::fs::remove_file(&file).unwrap_or_default();
+
+        Ok(())
+    }
+
     async fn load_stamp(&self, stamp: &Stamp) -> Result<Wind> {
-        Ok(self.jsons_storage().get(stamp.file_name()).await?.try_into()?)
+
+        let img = ImageReader::new(self.pngs.open(stamp.file_name()).await?).with_guessed_format()?.decode()?;
+
+        let mut u = Vec::with_capacity(180);
+        let mut v = Vec::with_capacity(180);
+
+        for y in 0..180 {
+            //let y = 179 - y;
+
+            let mut raw_u = Vec::with_capacity(360);
+            let mut raw_v = Vec::with_capacity(360);
+
+            for x in 0..360 {
+                //let lon = x - 180;
+
+                let pixel = img.get_pixel(x, y);
+                raw_u.push(Self::vr_speed(pixel.0[0]));
+                raw_v.push(Self::vr_speed(pixel.0[1]));
+            }
+            raw_u.push(raw_u[0]);
+            raw_v.push(raw_v[0]);
+            u.push(raw_u.into_boxed_slice());
+            v.push(raw_v.into_boxed_slice());
+        }
+
+        Ok(Wind {
+            lat0: -90.0,
+            lon0: -180.0,
+            delta_lat: 1.0,
+            delta_lon: 1.0,
+            n_lat: 180,
+            n_lon: 361,
+            u: u.into_boxed_slice(),
+            v: v.into_boxed_slice()
+        })
     }
 }
