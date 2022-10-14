@@ -197,42 +197,18 @@ impl JsonProvider for dyn Provider + Sync {
 
 }
 
-mod test {
-  #[tokio::test]
-  async fn load_grib_test() -> Result<()>{
-
-    std::env::var("RUST_LOG").map_err(|_| {
-      std::env::set_var("RUST_LOG", "error,winds=debug");
-    }).unwrap_or_default();
-    env_logger::init();
-
-    let noaa = Noaa::from_config(&NoaaProviderConfig {
-      enabled: true,
-      init: None,
-      jsons: Storage::Local { dir: "data/noaa/jsons".to_string() }
-    })?;
-
-    noaa.load(false, true).await?;
-    tokio::spawn(async move {
-      noaa.start_refresh().await;
-    }).await;
-
-    Ok(())
-  }
-}
-
 fn build_grid(data: Box<[f64]>, nb_lat: usize, nb_lon: usize) -> Box<[Box<[f64]>]> {
 
   let is_continuous = true;
 
-  let nb_lon = if is_continuous { nb_lon + 1 } else { nb_lon };
+  let size = if is_continuous { nb_lon + 1 } else { nb_lon };
 
   let mut grid = Vec::with_capacity(nb_lat); //vec![vec![0f64; nb_lon]; nb_lat];
 
   let mut p = 0;
   for _ in 0..nb_lat {
-    let mut raw = Vec::with_capacity(nb_lon);
-    for _ in 0..nb_lon-1 {
+    let mut raw = Vec::with_capacity(size);
+    for _ in 0..nb_lon {
       raw.push(data[p]);
       p += 1;
     }
@@ -341,7 +317,7 @@ pub trait Provider {
     });
 
     let mut stamps = stamps.into_iter().peekable();
-    while let Some(mut stamp) = stamps.next() {
+    while let Some(stamp) = stamps.next() {
 
       if !self.status().contains_key(&stamp.forecast_time).await {
         debug!("Add {} to existing forecast {}", &stamp, &stamp.forecast_time);
@@ -551,7 +527,7 @@ impl WindsSpec for Winds {
     let status = self.read().await;
 
     let mut previous: Option<(&ForecastTime, &Vec<Stamp>)> = None;
-    for (i, (forecast_time, stamps)) in status.forecasts.iter().enumerate() {
+    for (_, (forecast_time, stamps)) in status.forecasts.iter().enumerate() {
       if forecast_time > m {
         match previous {
           None => {

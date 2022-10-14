@@ -251,7 +251,7 @@ impl Storage {
         let f = File::open(Path::new(dir).join(name))?;
         Ok(BufReader::new(f))
       }
-      Storage::ObjectStorage { endpoint, region, bucket, access_key, secret_key } => {
+      Storage::ObjectStorage { .. } => {
         todo!()
       }
     }

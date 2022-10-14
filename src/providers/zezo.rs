@@ -10,7 +10,7 @@ use image::GenericImageView;
 use image::io::Reader as ImageReader;
 use tempfile::NamedTempFile;
 use tokio::sync::{RwLock};
-use crate::config::{NoaaProviderConfig, Storage, ZezoProviderConfig};
+use crate::config::{Storage, ZezoProviderConfig};
 use crate::providers::{Provider, Status, WindsSpec, Winds, Wind};
 use crate::error::{Error, Result};
 use crate::stamp::{Durations, ForecastTime, ForecastTimeSpec, RefTime, RefTimeSpec, Stamp};

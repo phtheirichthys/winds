@@ -18,7 +18,7 @@ impl Grib2DataDecoder for GridPointDataComplexPackingSpacialDiffDecoder {
             }
         };
 
-        let mut cpt: usize;
+        let cpt: usize;
         let z1 = read_as!(u16, slice, 0).as_grib_int();
         let (z2, z_min) = {
             if data.spacial_difference_order == 2 {
