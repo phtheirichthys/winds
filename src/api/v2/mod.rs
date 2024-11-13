@@ -45,7 +45,7 @@ async fn get_ref(winds: &State<HashMap<String, Winds>>, provider: String, ref_ti
             };
 
             let stamp = Stamp { forecast_time, ref_time, wind: None };
-            let content = match std::fs::read(&format!("data/noaa/jsons/{}", stamp.file_name())) {
+            let content = match std::fs::read(&format!("data/noaa/{}", stamp.file_name())) {
                 Ok(content) => content,
                 Err(e) => {
                     debug!("error getting file : {}", e);
