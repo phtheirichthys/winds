@@ -6,8 +6,7 @@ use std::ops::Neg;
 use std::sync::Arc;
 use chrono::{DateTime, Duration, Timelike, Utc};
 use http::StatusCode;
-use image::GenericImageView;
-use image::io::Reader as ImageReader;
+use image::{ GenericImageView, ImageReader};
 use tempfile::NamedTempFile;
 use tokio::sync::{RwLock};
 use crate::config::{Storage, ZezoProviderConfig};
@@ -205,6 +204,8 @@ impl Provider for Zezo {
     fn jsons_storage(&self) -> Storage {
         self.pngs.clone()
     }
+
+    fn to_json(&self) -> bool { false }
 
     fn max_forecast_hour(&self) -> u16 {
         384

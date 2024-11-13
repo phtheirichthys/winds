@@ -1,5 +1,4 @@
 use crate::stamp::StampError;
-use crate::grib;
 
 pub type Result<T, E = Error> = std::result::Result<T, E>;
 
@@ -28,9 +27,6 @@ pub enum Error {
 
     #[error("ExitStatusError: {0}")]
     ExitStatusError(#[from] std::process::ExitStatusError),
-
-    #[error("GribError: {0}")]
-    GribError(#[from] grib::GribError),
 
     #[error("ImageError: {0}")]
     ImageError(#[from] image::ImageError),

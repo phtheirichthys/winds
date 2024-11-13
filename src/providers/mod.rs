@@ -69,7 +69,7 @@ impl TryFrom<Vec<Message>> for Wind {
             2 => {
               let u = build_grid(message.data, n_lat, n_lon);
 
-              let mut wind = wind.get_or_insert(Wind {
+              let wind = wind.get_or_insert(Wind {
                 lat0,
                 lon0,
                 delta_lat,
@@ -109,7 +109,7 @@ impl TryFrom<Vec<Message>> for Wind {
   }
 }
 
-pub async fn start_provider(provider_config: &ProviderConfig) -> Result<Option<Winds>> {
+pub async fn  start_provider(provider_config: &ProviderConfig) -> Result<Option<Winds>> {
 
   match provider_config {
     ProviderConfig::Noaa(NoaaProviderConfig { enabled: false, .. }) => {
@@ -227,6 +227,8 @@ pub trait Provider {
   fn id(&self) -> String;
 
   fn jsons_storage(&self) -> Storage;
+
+  fn to_json(&self) -> bool;
 
   fn max_forecast_hour(&self) -> u16;
 
@@ -363,39 +365,49 @@ pub trait Provider {
   async fn download_at(&self, ref_time: RefTime);
 
   async fn on_file_downloaded(&self, grib_path: PathBuf, stamp: &Stamp) -> Result<()> {
-    debug!("{} - Convert grib `{}` to json", self.id(), stamp);
 
-    let file = NamedTempFile::new()?;
-    let (_, json_path) = file.into_parts();
+    if self.to_json() {
+      debug!("{} - Convert grib `{}` to json", self.id(), stamp);
 
-    let output = Command::new("grib2json/bin/grib2json")
-        .arg("--data")
-        .arg("--names")
-        .arg("--fs")
-        .arg("103")
-        .arg("--fv")
-        .arg("10")
-        .arg("--compact")
-        .arg("--output")
-        .arg(&json_path)
-        .arg(grib_path)
-        .output().await?;
+      let file = NamedTempFile::new()?;
+      let (_, json_path) = file.into_parts();
 
-    debug!("{} - {}", self.id(), String::from_utf8_lossy(output.stdout.as_slice()));
-    match output.status.exit_ok() {
-      Ok(()) => {
+      let output = Command::new("grib2json/bin/grib2json")
+          .arg("--data")
+          .arg("--names")
+          .arg("--fs")
+          .arg("103")
+          .arg("--fv")
+          .arg("10")
+          .arg("--compact")
+          .arg("--output")
+          .arg(&json_path)
+          .arg(grib_path)
+          .output().await?;
 
-        self.jsons_storage().save(&json_path, stamp.file_name()).await?;
+      debug!("{} - {}", self.id(), String::from_utf8_lossy(output.stdout.as_slice()));
+      match output.status.exit_ok() {
+        Ok(()) => {
 
-        std::fs::remove_file(&json_path).unwrap_or_default();
+          self.jsons_storage().save(&json_path, stamp.file_name()).await?;
 
-        Ok(())
+          std::fs::remove_file(&json_path).unwrap_or_default();
+
+          Ok(())
+        }
+        Err(e) => {
+          error!("{} - Error converting grib `{}` to json : {}", self.id(), stamp, String::from_utf8_lossy(output.stderr.as_slice()));
+          Err(Error::ExitStatusError(e))
+        }
       }
-      Err(e) => {
-        error!("{} - Error converting grib `{}` to json : {}", self.id(), stamp, String::from_utf8_lossy(output.stderr.as_slice()));
-        Err(Error::ExitStatusError(e))
-      }
+    } else {
+      self.jsons_storage().save(&grib_path, stamp.file_name()).await?;
+
+      std::fs::remove_file(&grib_path).unwrap_or_default();
+
+      Ok(())
     }
+
   }
 
   async fn on_stamp_downloaded(&self, delete: bool, load: bool, stamp: Stamp) -> Result<()> {
@@ -434,12 +446,18 @@ pub trait Provider {
     let status = self.status();
     let mut status = status.write().await;
 
-    while let Some((_, stamps)) = status.forecasts.drain_filter(|forecast, _| forecast.from_now() < Duration::hours(-3)).next() {
-      for stamp in stamps {
-        info!("{} - Delete {}", self.id(), stamp);
-        match self.jsons_storage().remove(stamp.file_name()).await {
-          Ok(()) => {},
-          Err(e) => error!("{} - Error removing file {} from storage {} : {}", self.id(), stamp.file_name(), self.jsons_storage(), e),
+    let forecasts_to_remove = status.forecasts.iter().map(|(forecast, _)| forecast.clone()).filter(|forecast| forecast.from_now() < Duration::hours(-3)).collect::<Vec<_>>();
+    for forecast in forecasts_to_remove {
+      match status.forecasts.remove(&forecast) {
+        None => {}
+        Some(stamps) => {
+          for stamp in stamps {
+            info!("{} - Delete {}", self.id(), stamp);
+            match self.jsons_storage().remove(stamp.file_name()).await {
+              Ok(()) => {},
+              Err(e) => error!("{} - Error removing file {} from storage {} : {}", self.id(), stamp.file_name(), self.jsons_storage(), e),
+            }
+          }
         }
       }
     }

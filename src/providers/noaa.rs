@@ -8,7 +8,7 @@ use chrono::{DateTime, Duration, Utc};
 use http::StatusCode;
 use tempfile::NamedTempFile;
 use tokio::sync::{RwLock};
-use crate::config::{NoaaProviderConfig, Storage};
+use crate::config::{NoaaGrid, NoaaProviderConfig, Storage};
 use crate::providers::{Provider, Status, WindsSpec, Winds, Wind};
 use crate::error::{Error, Result};
 use crate::stamp::{Durations, ForecastTime, ForecastTimeSpec, RefTime, RefTimeSpec, Stamp};
@@ -16,6 +16,8 @@ use crate::stamp::{Durations, ForecastTime, ForecastTimeSpec, RefTime, RefTimeSp
 pub struct Noaa {
     pub(crate) status: Winds,
     jsons: Storage,
+    to_json: bool,
+    grid: NoaaGrid
 }
 
 impl Noaa {
@@ -43,6 +45,8 @@ impl Noaa {
                 forecasts: Default::default()
             })),
             jsons: Storage::Local { dir: jsons_dir },
+            to_json: false,
+            grid: NoaaGrid::Grid1p00,
         })
 
     }
@@ -63,6 +67,8 @@ impl Noaa {
                 forecasts: Default::default()
             })),
             jsons: config.jsons.clone(),
+            to_json: config.to_json,
+            grid: config.grid.clone(),
         })
     }
 
@@ -132,7 +138,12 @@ impl Noaa {
 
     async fn download_grib(&self, stamp: &Stamp) -> Result<()> {
 
-        let url = format!("https://nomads.ncep.noaa.gov/cgi-bin/filter_gfs_1p00.pl");
+        let grid = match self.grid {
+            NoaaGrid::Grid1p00 => "1p00",
+            NoaaGrid::Grid0p25 => "0p25",
+        };
+
+        let url = format!("https://nomads.ncep.noaa.gov/cgi-bin/filter_gfs_{grid}.pl");
 
         let client = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(30))
@@ -140,7 +151,7 @@ impl Noaa {
             .unwrap();
         let req = client.get(url).query(&[
             ("dir", format!("/gfs.{}/{}/atmos", stamp.ref_time.format("%Y%m%d"), stamp.ref_time.format("%H")).as_str()),
-            ("file", format!("gfs.t{}z.pgrb2.1p00.f{:03}", stamp.ref_time.format("%H"), stamp.forecast_hour()).as_str()),
+            ("file", format!("gfs.t{}z.pgrb2.{grid}.f{:03}", stamp.ref_time.format("%H"), stamp.forecast_hour()).as_str()),
             ("lev_10_m_above_ground", "on"),
             ("var_UGRD", "on"),
             ("var_VGRD", "on"),
@@ -203,6 +214,8 @@ impl Provider for Noaa {
     fn jsons_storage(&self) -> Storage {
         self.jsons.clone()
     }
+
+    fn to_json(&self) -> bool { self.to_json }
 
     fn max_forecast_hour(&self) -> u16 {
         384

@@ -1,7 +1,9 @@
-#![feature(btree_drain_filter, async_closure)]
+#![feature(async_closure)]
 #![feature(exit_status_error)]
 
 use std::collections::HashMap;
+use rocket::http::Method;
+use rocket_cors::{AllowedHeaders, AllowedOrigins};
 use structopt::StructOpt;
 
 extern crate log;
@@ -13,7 +15,6 @@ mod config;
 mod providers;
 mod error;
 mod stamp;
-mod grib;
 
 #[derive(Debug, StructOpt)]
 struct Cli {
@@ -45,7 +46,16 @@ async fn main() -> () {
         }
     }
 
-    match api::build().manage(winds).launch().await {
+    let cors = rocket_cors::CorsOptions {
+        allowed_origins: AllowedOrigins::All,
+        allowed_methods: vec![Method::Get].into_iter().map(From::from).collect(),
+        allowed_headers: AllowedHeaders::some(&["Authorization", "Accept"]),
+        allow_credentials: true,
+        ..Default::default()
+    }
+    .to_cors().unwrap();
+
+    match api::build().manage(winds).attach(cors).launch().await {
         Ok(_) => (),
         Err(e) => {
             error!("Error launching server : {:?}", e);

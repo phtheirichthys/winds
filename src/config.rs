@@ -7,7 +7,7 @@ use anyhow::anyhow;
 use chrono::{DateTime, Utc};
 use flate2::Compression;
 use s3::Bucket;
-use serde::{Serialize, Deserialize};
+use serde_derive::{Serialize, Deserialize};
 use crate::providers::json::Message;
 use crate::stamp::Stamp;
 
@@ -26,10 +26,21 @@ pub enum ProviderConfig {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
 pub struct NoaaProviderConfig {
   pub enabled: bool,
   pub init: Option<DateTime<Utc>>,
   pub jsons: Storage,
+  pub to_json: bool,
+  pub grid: NoaaGrid,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum NoaaGrid {
+  #[serde(rename = "1.00")]
+  Grid1p00,
+  #[serde(rename = "0.25")]
+  Grid0p25
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -86,7 +97,8 @@ impl Storage {
           access_key: Some(access_key.clone()),
           secret_key: Some(secret_key.clone()),
           security_token: None,
-          session_token: None
+          session_token: None,
+          expiration: None,
         }).unwrap();
 
         storage.set_path_style();
@@ -99,10 +111,10 @@ impl Storage {
         let mut buffer = Vec::new();
         gz.read_to_end(&mut buffer)?;
 
-        let (_, status_code) = storage.put_object_with_content_type(&name, buffer.as_slice(), "application/json").await?;
+        let response_data = storage.put_object_with_content_type(&name, buffer.as_slice(), "application/json").await?;
 
-        if status_code != 200 {
-          return Err(anyhow!("Error saving file to s3 bucket : {}", status_code));
+        if response_data.status_code() != 200 {
+          return Err(anyhow!("Error saving file to s3 bucket : {}", response_data.status_code()));
         }
       }
     }
@@ -123,13 +135,14 @@ impl Storage {
           access_key: Some(access_key.clone()),
           secret_key: Some(secret_key.clone()),
           security_token: None,
-          session_token: None
+          session_token: None,
+          expiration: None,
         }).unwrap();
 
-        let (_, status_code) = storage.delete_object(name).await?;
+        let response_data = storage.delete_object(name).await?;
 
-        if status_code != 204 {
-          return Err(anyhow!("Error deleting file from s3 bucket : {}", status_code));
+        if response_data.status_code() != 204 {
+          return Err(anyhow!("Error deleting file from s3 bucket : {}", response_data.status_code()));
         }
       }
     }
@@ -147,7 +160,8 @@ impl Storage {
           access_key: Some(access_key.clone()),
           secret_key: Some(secret_key.clone()),
           security_token: None,
-          session_token: None
+          session_token: None,
+          expiration: None,
         }).unwrap();
 
         let list_result = storage.list(String::from("/"), Some(String::from("/"))).await?;
@@ -166,7 +180,8 @@ impl Storage {
           access_key: Some(access_key.clone()),
           secret_key: Some(secret_key.clone()),
           security_token: None,
-          session_token: None
+          session_token: None,
+          expiration: None,
         }).unwrap();
 
         let list_result = storage.list_blocking(String::from("/"), Some(String::from("/")))?;
@@ -199,7 +214,8 @@ impl Storage {
           access_key: Some(access_key.clone()),
           secret_key: Some(secret_key.clone()),
           security_token: None,
-          session_token: None
+          session_token: None,
+          expiration: None,
         }).unwrap();
 
         let list_result = storage.list(String::from("/"), Some(String::from("/"))).await?;
@@ -228,16 +244,17 @@ impl Storage {
           access_key: Some(access_key.clone()),
           secret_key: Some(secret_key.clone()),
           security_token: None,
-          session_token: None
+          session_token: None,
+          expiration: None,
         }).unwrap();
 
 
-        let (buf, status_code) = storage.get_object(name).await?;
+        let response_data = storage.get_object(name).await?;
 
-        let messages: Vec<Message> = serde_json::from_slice(buf.as_slice())?;
+        let messages: Vec<Message> = serde_json::from_slice(response_data.as_slice())?;
 
-        if status_code != 204 {
-          return Err(anyhow!("Error getting file from s3 bucket : {}", status_code));
+        if response_data.status_code() != 204 {
+          return Err(anyhow!("Error getting file from s3 bucket : {}", response_data.status_code()));
         }
 
         Ok(messages)

@@ -1,7 +1,7 @@
 use std::fmt::{Display, Formatter};
 use std::path::PathBuf;
 use std::sync::Arc;
-use chrono::{DateTime, Duration, DurationRound, TimeZone, Utc};
+use chrono::{DateTime, Duration, DurationRound, NaiveDateTime, Utc};
 use crate::providers::Wind;
 
 pub(crate) type RefTime = DateTime<Utc>;
@@ -78,7 +78,7 @@ impl TryFrom<&String> for Stamp {
     fn try_from(filename: &String) -> Result<Self, Self::Error> {
         match filename.split('.').collect::<Vec<&str>>()[..] {
             [date, hour] => {
-                let ref_time = Utc.datetime_from_str((String::from(date) + "00").as_str(), "%Y%m%d%H%M")?;
+                let ref_time = NaiveDateTime::parse_from_str((String::from(date) + "00").as_str(), "%Y%m%d%H%M")?.and_utc();
                 let forecast_hour = hour[1..4].parse::<u16>()?;
 
                 let res = Self {

@@ -21,7 +21,13 @@ struct LastForecast {
 #[derive(Deserialize, Serialize, Debug)]
 struct Forecast {
     forecast_time: DateTime<Utc>,
-    ref_times: Vec<DateTime<Utc>>,
+    references: Vec<Reference>,
+}
+
+#[derive(Deserialize, Serialize, Debug)]
+struct Reference {
+    forecast_time: DateTime<Utc>,
+    ref_time: DateTime<Utc>,
 }
 
 impl From<&Status> for Forecasts {
@@ -36,7 +42,7 @@ impl From<&Status> for Forecasts {
                 let mut forecasts = forecasts.forecasts.iter()
                     .map(|(forecast_time, forecasts)| Forecast {
                         forecast_time: forecast_time.clone(),
-                        ref_times: forecasts.iter().map(|forecast| forecast.ref_time).collect(),
+                        references: forecasts.iter().map(|forecast| Reference { forecast_time: forecast_time.clone(), ref_time: forecast.ref_time }).collect(),
                     }).collect::<Vec<Forecast>>();
 
                 forecasts.sort_by(|a, b| a.forecast_time.cmp(&b.forecast_time));
