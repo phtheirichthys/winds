@@ -11,7 +11,7 @@ jobs:
     name: Linux AARCH64
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
       - uses: actions-rs/toolchain@v1
         with:
           toolchain: nightly
@@ -25,9 +25,9 @@ jobs:
       - name: Display structure of files
         run: ls -R
 
-      - uses: actions/upload-artifact@v2
+      - uses: actions/upload-artifact@v4
         with:
-          name: target
+          name: target_aarch64
           path: target/**/release/winds
           retention-days: 1
 
@@ -35,7 +35,7 @@ jobs:
     name: Linux x86-64
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
       - uses: actions-rs/toolchain@v1
         with:
           toolchain: nightly
@@ -49,9 +49,9 @@ jobs:
       - name: Display structure of files
         run: ls -R
 
-      - uses: actions/upload-artifact@v2
+      - uses: actions/upload-artifact@v4
         with:
-          name: target
+          name: target_x86-64
           path: target/**/release/winds
           retention-days: 1
 
@@ -64,9 +64,7 @@ jobs:
     steps:
       - uses: actions/checkout@v2
 
-      - uses: actions/download-artifact@v2
-        with:
-          name: target
+      - uses: actions/download-artifact@v4
 
       - name: Prepare
         id: prepare
@@ -92,8 +90,11 @@ jobs:
             --build-arg VCS_REF=${GITHUB_SHA::8} \
             ${TAGS} --file ./Dockerfile ./
 
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
       - name: Set up Docker Buildx
-        uses: crazy-max/ghaction-docker-buildx@v3.3.1
+        uses: docker/setup-buildx-action@v3
 
       - name: Docker Buildx (build)
         run: |
