@@ -1,10 +1,12 @@
 mod model;
 
 use std::collections::HashMap;
+use std::io::Cursor;
 use std::ops::Deref;
 use chrono::NaiveDateTime;
-use rocket::{Route, State};
-use rocket::http::Status;
+use rocket::{response, Request, Response, Route, State};
+use rocket::http::{hyper, Header, Status};
+use rocket::response::Responder;
 use rocket::serde::json::Json;
 use crate::api::v2::model::Forecasts;
 use crate::providers::Winds;
@@ -25,8 +27,22 @@ async fn get(winds: &State<HashMap<String, Winds>>, provider: String) -> Result<
     }
 }
 
+struct GribData {
+    data: Vec<u8>,
+}
+
+#[rocket::async_trait]
+impl<'r> Responder<'r, 'static> for GribData {
+    fn respond_to(self, _: &'r Request<'_>) -> response::Result<'static> {
+        Response::build()
+            .raw_header("Cache-Control", "max-age=43200")
+            .sized_body(self.data.len(), Cursor::new(self.data))
+            .ok()
+    }
+}
+
 #[get("/winds/<provider>/<ref_time>/<forecast_time>")]
-async fn get_ref(winds: &State<HashMap<String, Winds>>, provider: String, ref_time: String, forecast_time: String) -> Result<Vec<u8>, Status> {
+async fn get_ref(winds: &State<HashMap<String, Winds>>, provider: String, ref_time: String, forecast_time: String) -> Result<GribData, Status> {
     match winds.get(&provider) {
         Some(winds) => {
             let forecast_time = match NaiveDateTime::parse_from_str(&format!("{}00", forecast_time), "%Y%m%d%H%M") {
@@ -52,7 +68,7 @@ async fn get_ref(winds: &State<HashMap<String, Winds>>, provider: String, ref_ti
                     return Err(Status::NotFound)
                 }
             };
-            Ok(content)
+            Ok(GribData {data: content})
         },
         None => Err(Status::NotFound)
     }
